@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Gym Battle</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="profile-gate" class="gate">
+  <div class="gate-card">
+    <h1>🏋️ Gym Battle</h1>
+    <p>Who's logging in?</p>
+    <div id="profile-buttons" class="profile-buttons"></div>
+    <p class="rename-hint">(tap ✎ to rename a profile)</p>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <header class="topbar">
+    <div class="brand">🏋️ Gym Battle</div>
+    <div class="whoami">
+      <span id="whoami-name"></span>
+      <button id="switch-profile" class="link-btn">switch</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="log">Log</button>
+    <button class="tab-btn" data-tab="progress">Progress</button>
+    <button class="tab-btn" data-tab="bets">Bets</button>
+  </nav>
+
+  <main class="content">
+
+    <section id="tab-log" class="tab-panel active">
+      <div class="card">
+        <h2>Log a workout</h2>
+        <form id="workout-form">
+          <label>Exercise
+            <input list="exercise-list" id="exercise-input" placeholder="e.g. Bench Press" required />
+            <datalist id="exercise-list"></datalist>
+          </label>
+          <label>Date
+            <input type="date" id="date-input" required />
+          </label>
+
+          <div id="sets-container"></div>
+          <button type="button" id="add-set-btn" class="secondary-btn">+ Add set</button>
+
+          <label>Notes (optional)
+            <input type="text" id="notes-input" placeholder="Felt strong today" />
+          </label>
+
+          <button type="submit" class="primary-btn">Save workout</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Recent activity</h2>
+        <div id="recent-list" class="list"></div>
+      </div>
+    </section>
+
+    <section id="tab-progress" class="tab-panel">
+      <div class="card">
+        <h2>Head to head</h2>
+        <label>Exercise
+          <select id="progress-exercise"></select>
+        </label>
+        <div id="progress-summary" class="summary-grid"></div>
+        <canvas id="progress-chart" height="180"></canvas>
+      </div>
+    </section>
+
+    <section id="tab-bets" class="tab-panel">
+      <div class="card">
+        <h2>Active &amp; past bets</h2>
+        <div id="bets-list" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2>Start a new bet 😈</h2>
+        <form id="bet-form">
+          <label>What's the bet about?
+            <input type="text" id="bet-title" placeholder="e.g. Most push-ups this week" required />
+          </label>
+          <label>Exercise (leave blank for "all exercises")
+            <input list="exercise-list" id="bet-exercise" placeholder="Any exercise" />
+          </label>
+          <label>Compare by
+            <select id="bet-metric">
+              <option value="reps">Total reps</option>
+              <option value="volume">Total volume (reps × weight)</option>
+              <option value="sets">Total sets</option>
+              <option value="max_weight">Heaviest single set</option>
+              <option value="workouts">Number of workouts logged</option>
+            </select>
+          </label>
+          <div class="row">
+            <label>Start date
+              <input type="date" id="bet-start" required />
+            </label>
+            <label>End date
+              <input type="date" id="bet-end" required />
+            </label>
+          </div>
+          <label>Stake (what the loser owes)
+            <input type="text" id="bet-stake" placeholder="e.g. loser does dishes for a week" />
+          </label>
+          <button type="submit" class="primary-btn">Place bet</button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
