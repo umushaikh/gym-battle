@@ -397,7 +397,8 @@ function bindEvents() {
   document.getElementById('close-picker-btn').addEventListener('click', closePicker);
   document.getElementById('picker-search').addEventListener('input', renderPickerList);
   document.getElementById('picker-new-btn').addEventListener('click', togglePickerNewForm);
-  document.getElementById('picker-add-btn').addEventListener('click', addPickedExercises);
+  document.getElementById('picker-add-btn').addEventListener('click', () => addPickedExercises(false));
+  document.getElementById('picker-superset-btn').addEventListener('click', () => addPickedExercises(true));
   document.getElementById('picker-new-save').addEventListener('click', createExerciseFromPicker);
 
   document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
@@ -830,7 +831,7 @@ function togglePickerNewForm() {
   // The sheet is only so tall; hide the browse list while creating so the
   // form's save button can't get clipped off the bottom.
   document.getElementById('picker-list').classList.add('hidden');
-  document.getElementById('picker-add-btn').classList.add('hidden');
+  document.getElementById('picker-actions').classList.add('hidden');
   document.getElementById('picker-new-btn').textContent = 'Cancel';
   document.getElementById('picker-new-name').focus();
 }
@@ -903,21 +904,46 @@ function renderPickerList() {
 }
 
 function renderPickerAddButton() {
-  const btn = document.getElementById('picker-add-btn');
   const count = state.pickerSelection.length;
-  btn.classList.toggle('hidden', count === 0);
-  btn.textContent = count === 1 ? 'Add 1 exercise' : `Add ${count} exercises`;
+  document.getElementById('picker-actions').classList.toggle('hidden', count === 0);
+  document.getElementById('picker-add-btn').textContent =
+    count === 1 ? 'Add 1 exercise' : `Add ${count} exercises`;
+  // Supersetting needs at least two exercises to link together.
+  document.getElementById('picker-superset-btn').classList.toggle('hidden', count < 2);
 }
 
-async function addPickedExercises() {
+function pickerTargetList() {
+  return state.pickerTarget === 'routine'
+    ? state.routineEditing.exercises
+    : state.activeWorkout.exercises;
+}
+
+async function addPickedExercises(asSuperset) {
   // Added in the order they were ticked, so the workout reads the way it was
   // built up rather than in library order.
   const picked = state.pickerSelection
     .map(id => state.exercises.find(e => e.id === id))
     .filter(Boolean);
+  const startedAt = pickerTargetList().length;
   for (const exercise of picked) {
     await addExerciseToTarget(exercise, { keepOpen: true });
   }
+
+  if (asSuperset) {
+    // Link the batch that was actually appended. Anything already in the
+    // workout is skipped as a duplicate, so this counts what landed rather
+    // than what was ticked.
+    const list = pickerTargetList();
+    if (list[startedAt]) list[startedAt].linkedToPrev = false;
+    for (let i = startedAt + 1; i < list.length; i++) list[i].linkedToPrev = true;
+    if (state.pickerTarget === 'routine') {
+      renderRoutineEditor();
+    } else {
+      persistActiveWorkout();
+      renderActiveWorkout();
+    }
+  }
+
   state.pickerSelection = [];
   closePicker();
 }
