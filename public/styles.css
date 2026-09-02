@@ -179,6 +179,20 @@ label { display: block; margin-bottom: 12px; }
 .workout-name-input { font-size: 1.1rem; font-weight: 700; border: none; background: transparent; padding: 4px 0; margin: 0; width: auto; flex: 1; }
 .workout-name-input:focus { outline: none; border-bottom: 1px solid var(--accent-2); }
 .active-timer { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); font-size: 1.1rem; white-space: nowrap; }
+.notes-label textarea {
+  display: block;
+  width: 100%;
+  min-height: 70px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
 .active-actions { display: flex; gap: 10px; margin-top: 16px; }
 .active-actions .primary-btn { flex: 1; margin-top: 0; }
 
@@ -202,7 +216,17 @@ label { display: block; margin-bottom: 12px; }
   grid-template-columns: 28px 1fr 1fr 28px;
 }
 .set-table-head { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
-.set-num { color: var(--muted); font-size: 0.85rem; text-align: center; }
+.set-num {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  border-radius: 6px;
+}
+.set-num.warmup { color: var(--accent-2); font-weight: 700; background: rgba(59,130,246,0.15); }
 .set-prev { color: var(--muted); font-size: 0.8rem; text-align: center; }
 .set-row-table input { margin-top: 0; padding: 8px; text-align: center; }
 .set-check {
@@ -247,6 +271,7 @@ label { display: block; margin-bottom: 12px; }
 }
 .modal-header { display: flex; justify-content: space-between; align-items: center; }
 .modal-header h2 { margin: 0; font-size: 1.1rem; }
+.modal-header-actions { display: flex; align-items: center; gap: 14px; }
 
 /* Personal records */
 .subheading { margin: 16px 0 10px; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }

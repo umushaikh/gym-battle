@@ -2,7 +2,7 @@ const ACTIVE_WORKOUT_KEY = 'ironLogActiveWorkout';
 
 const state = {
   exercises: [],
-  activeWorkout: null,   // { name, startedAt, exercises: [{exerciseId, name, sets:[{reps,weight,completed}]}] }
+  activeWorkout: null,   // { name, startedAt, notes, exercises: [{exerciseId, name, sets:[{reps,weight,warmup,completed}]}] }
   lastCache: {},          // exerciseId -> { sets, date } | null
   pickerTarget: null,     // 'workout' | 'routine'
   routineEditing: null,   // { id?, name, exercises: [{exerciseId, name, sets:[{reps,weight}]}] }
@@ -10,17 +10,10 @@ const state = {
   categoryFilter: ''
 };
 
-async function api(path, opts) {
-  const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
-  }
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 function escapeHtml(str) {
@@ -41,14 +34,15 @@ function e1rm(reps, weight) {
 function formatSets(sets) {
   const groups = [];
   sets.forEach(s => {
+    const warmup = !!s.warmup;
     const last = groups[groups.length - 1];
-    if (last && last.reps === s.reps && last.weight === s.weight) {
+    if (last && last.reps === s.reps && last.weight === s.weight && last.warmup === warmup) {
       last.count++;
     } else {
-      groups.push({ reps: s.reps, weight: s.weight, count: 1 });
+      groups.push({ reps: s.reps, weight: s.weight, warmup, count: 1 });
     }
   });
-  return groups.map(g => `${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}lbs` : ''}`).join(', ');
+  return groups.map(g => `${g.warmup ? 'Warmup ' : ''}${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}lbs` : ''}`).join(', ');
 }
 
 function formatDuration(ms) {
@@ -60,12 +54,40 @@ function formatDuration(ms) {
 
 function workoutVolume(workout) {
   return workout.exercises.reduce((sum, e) =>
-    sum + e.sets.reduce((s, set) => s + set.reps * set.weight, 0), 0);
+    sum + e.sets.filter(set => !set.warmup).reduce((s, set) => s + set.reps * set.weight, 0), 0);
+}
+
+function buildShareText(workout) {
+  const lines = [
+    `${workout.name} — ${workout.date}`,
+    `${formatDuration(workout.endedAt - workout.startedAt)} · Volume ${Math.round(workoutVolume(workout)).toLocaleString()}lbs`,
+    ''
+  ];
+  workout.exercises.forEach(e => lines.push(`${e.name}: ${formatSets(e.sets)}`));
+  if (workout.notes) lines.push('', `Notes: ${workout.notes}`);
+  lines.push('', 'Logged with Iron Log');
+  return lines.join('\n');
+}
+
+async function shareWorkout(workout) {
+  const text = buildShareText(workout);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: workout.name, text });
+    } catch {
+      // user dismissed the share sheet
+    }
+  } else if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    alert('Workout copied to clipboard!');
+  } else {
+    alert(text);
+  }
 }
 
 // ---------- Init ----------
 async function init() {
-  state.exercises = await api('/exercises');
+  state.exercises = await db.getExercises();
   restoreActiveWorkout();
   bindEvents();
   renderWorkoutTab();
@@ -83,6 +105,12 @@ function bindEvents() {
   document.getElementById('active-workout-name').addEventListener('input', e => {
     if (state.activeWorkout) {
       state.activeWorkout.name = e.target.value;
+      persistActiveWorkout();
+    }
+  });
+  document.getElementById('workout-notes-input').addEventListener('input', e => {
+    if (state.activeWorkout) {
+      state.activeWorkout.notes = e.target.value;
       persistActiveWorkout();
     }
   });
@@ -138,7 +166,7 @@ function restoreActiveWorkout() {
 
 async function warmLastCache(exerciseId) {
   if (exerciseId in state.lastCache) return;
-  state.lastCache[exerciseId] = await api(`/exercises/${exerciseId}/last`);
+  state.lastCache[exerciseId] = await db.getExerciseLast(exerciseId);
 }
 
 // ---------- Workout tab: start screen ----------
@@ -157,7 +185,7 @@ function renderWorkoutTab() {
 }
 
 async function loadRoutines() {
-  const routines = await api('/routines');
+  const routines = await db.getRoutines();
   const container = document.getElementById('routines-list');
   if (routines.length === 0) {
     container.innerHTML = `<div class="empty-state">No routines yet. Create one to start workouts faster.</div>`;
@@ -186,14 +214,14 @@ async function loadRoutines() {
   container.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('Delete this routine?')) return;
-      await api(`/routines/${btn.dataset.id}`, { method: 'DELETE' });
+      await db.deleteRoutine(btn.dataset.id);
       loadRoutines();
     });
   });
 }
 
 function startEmptyWorkout() {
-  state.activeWorkout = { name: 'Workout', startedAt: Date.now(), exercises: [] };
+  state.activeWorkout = { name: '', startedAt: Date.now(), notes: '', exercises: [] };
   persistActiveWorkout();
   renderWorkoutTab();
 }
@@ -202,10 +230,11 @@ function startFromRoutine(routine) {
   state.activeWorkout = {
     name: routine.name,
     startedAt: Date.now(),
+    notes: '',
     exercises: routine.exercises.map(e => ({
       exerciseId: e.exerciseId,
       name: e.name,
-      sets: e.sets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '', completed: false }))
+      sets: e.sets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '', warmup: false, completed: false }))
     }))
   };
   state.activeWorkout.exercises.forEach(e => warmLastCache(e.exerciseId).then(renderActiveWorkout));
@@ -243,6 +272,7 @@ function updateTimerDisplay() {
 
 function renderActiveWorkout() {
   document.getElementById('active-workout-name').value = state.activeWorkout.name;
+  document.getElementById('workout-notes-input').value = state.activeWorkout.notes || '';
   const container = document.getElementById('active-exercises');
 
   if (state.activeWorkout.exercises.length === 0) {
@@ -252,13 +282,15 @@ function renderActiveWorkout() {
 
   container.innerHTML = state.activeWorkout.exercises.map((ex, exIdx) => {
     const last = state.lastCache[ex.exerciseId];
+    let workingCount = 0;
     const rows = ex.sets.map((set, setIdx) => {
       const prev = last && last.sets[setIdx]
         ? `${last.sets[setIdx].weight || 0}×${last.sets[setIdx].reps || 0}`
         : '—';
+      const label = set.warmup ? 'W' : String(++workingCount);
       return `
         <div class="set-row-table" data-ex="${exIdx}" data-set="${setIdx}">
-          <span class="set-num">${setIdx + 1}</span>
+          <button class="set-num ${set.warmup ? 'warmup' : ''}" title="tap to mark as warmup">${label}</button>
           <span class="set-prev">${prev}</span>
           <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="lbs" value="${set.weight}" />
           <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
@@ -301,7 +333,7 @@ function bindActiveExerciseEvents() {
     btn.addEventListener('click', () => {
       const ex = state.activeWorkout.exercises[Number(btn.dataset.ex)];
       const lastSet = ex.sets[ex.sets.length - 1];
-      ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', completed: false });
+      ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', warmup: false, completed: false });
       persistActiveWorkout();
       renderActiveWorkout();
     });
@@ -312,6 +344,11 @@ function bindActiveExerciseEvents() {
     const setIdx = Number(row.dataset.set);
     const set = state.activeWorkout.exercises[exIdx].sets[setIdx];
 
+    row.querySelector('.set-num').addEventListener('click', () => {
+      set.warmup = !set.warmup;
+      persistActiveWorkout();
+      renderActiveWorkout();
+    });
     row.querySelector('.set-weight-input').addEventListener('input', e => {
       set.weight = e.target.value;
       persistActiveWorkout();
@@ -346,9 +383,9 @@ async function finishWorkout() {
     endedAt: Date.now(),
     date: todayStr(),
     exercises: state.activeWorkout.exercises,
-    notes: ''
+    notes: state.activeWorkout.notes || ''
   };
-  await api('/workouts', { method: 'POST', body: JSON.stringify(payload) });
+  await db.addWorkout(payload);
   state.activeWorkout = null;
   persistActiveWorkout();
   renderWorkoutTab();
@@ -392,7 +429,7 @@ function renderPickerList() {
   const createBtn = document.getElementById('picker-create-btn');
   if (createBtn) {
     createBtn.addEventListener('click', async () => {
-      const exercise = await api('/exercises', { method: 'POST', body: JSON.stringify({ name: document.getElementById('picker-search').value.trim() }) });
+      const exercise = await db.addExercise({ name: document.getElementById('picker-search').value.trim() });
       state.exercises.push(exercise);
       addExerciseToTarget(exercise);
     });
@@ -410,7 +447,7 @@ async function addExerciseToTarget(exercise) {
     state.activeWorkout.exercises.push({
       exerciseId: exercise.id,
       name: exercise.name,
-      sets: [{ reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', completed: false }]
+      sets: [{ reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', warmup: false, completed: false }]
     });
     persistActiveWorkout();
     renderActiveWorkout();
@@ -427,7 +464,7 @@ async function addExerciseToTarget(exercise) {
 
 // ---------- History tab ----------
 async function loadHistory() {
-  const workouts = await api('/workouts');
+  const workouts = await db.getWorkouts();
   const container = document.getElementById('history-list');
   if (workouts.length === 0) {
     container.innerHTML = `<div class="empty-state">No workouts logged yet. Finish one to see it here.</div>`;
@@ -453,7 +490,7 @@ async function loadHistory() {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       if (!confirm('Delete this workout?')) return;
-      await api(`/workouts/${btn.dataset.id}`, { method: 'DELETE' });
+      await db.deleteWorkout(btn.dataset.id);
       loadHistory();
     });
   });
@@ -461,6 +498,9 @@ async function loadHistory() {
 
 function openWorkoutDetail(workout) {
   document.getElementById('detail-title').textContent = workout.name;
+  const shareBtn = document.getElementById('share-detail-btn');
+  shareBtn.classList.remove('hidden');
+  shareBtn.onclick = () => shareWorkout(workout);
   document.getElementById('detail-body').innerHTML = `
     <div class="entry-sub" style="margin-bottom:12px;">${workout.date} · ${formatDuration(workout.endedAt - workout.startedAt)} · vol ${Math.round(workoutVolume(workout)).toLocaleString()}</div>
     ${workout.exercises.map(e => `
@@ -469,12 +509,14 @@ function openWorkoutDetail(workout) {
         <div class="entry-sub">${formatSets(e.sets)}</div>
       </div>
     `).join('')}
+    ${workout.notes ? `<div class="entry-sub" style="margin-top:10px;"><strong>Notes:</strong> ${escapeHtml(workout.notes)}</div>` : ''}
   `;
   document.getElementById('detail-modal').classList.remove('hidden');
 }
 
 function closeDetail() {
   document.getElementById('detail-modal').classList.add('hidden');
+  document.getElementById('share-detail-btn').classList.add('hidden');
 }
 
 // ---------- Exercises tab (library) ----------
@@ -527,7 +569,7 @@ async function createExerciseFromLibrary() {
   if (!name) return;
   const category = document.getElementById('new-exercise-category').value.trim();
   const equipment = document.getElementById('new-exercise-equipment').value.trim();
-  const exercise = await api('/exercises', { method: 'POST', body: JSON.stringify({ name, category, equipment }) });
+  const exercise = await db.addExercise({ name, category, equipment });
   state.exercises.push(exercise);
   document.getElementById('new-exercise-name').value = '';
   document.getElementById('new-exercise-category').value = '';
@@ -537,11 +579,13 @@ async function createExerciseFromLibrary() {
 }
 
 async function openExerciseDetail(exercise) {
-  const sessions = await api(`/exercises/${exercise.id}/history`);
+  const sessions = await db.getExerciseHistory(exercise.id);
   document.getElementById('detail-title').textContent = exercise.name;
+  document.getElementById('share-detail-btn').classList.add('hidden');
 
   let bestWeight = 0, bestE1rm = 0;
   sessions.forEach(s => s.sets.forEach(set => {
+    if (set.warmup) return;
     if (set.weight > bestWeight) bestWeight = set.weight;
     bestE1rm = Math.max(bestE1rm, e1rm(set.reps, set.weight));
   }));
@@ -588,7 +632,7 @@ function drawExerciseChart(sessions) {
 
   const points = [...sessions].reverse().map(s => ({
     date: s.date,
-    value: Math.max(0, ...s.sets.map(set => e1rm(set.reps, set.weight)))
+    value: Math.max(0, ...s.sets.filter(set => !set.warmup).map(set => e1rm(set.reps, set.weight)))
   }));
   if (points.length === 0) {
     ctx.fillStyle = '#94a3b8';
@@ -722,9 +766,9 @@ async function saveRoutine() {
   }
   const payload = { name, exercises: state.routineEditing.exercises };
   if (state.routineEditing.id) {
-    await api(`/routines/${state.routineEditing.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    await db.updateRoutine(state.routineEditing.id, payload);
   } else {
-    await api('/routines', { method: 'POST', body: JSON.stringify(payload) });
+    await db.addRoutine(payload);
   }
   closeRoutineEditor();
   loadRoutines();

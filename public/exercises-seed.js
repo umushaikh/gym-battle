@@ -1,4 +1,4 @@
-module.exports = [
+const DEFAULT_EXERCISES = [
   { name: 'Bench Press', category: 'Chest', equipment: 'Barbell' },
   { name: 'Incline Bench Press', category: 'Chest', equipment: 'Barbell' },
   { name: 'Dumbbell Bench Press', category: 'Chest', equipment: 'Dumbbell' },

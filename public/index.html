@@ -4,6 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Iron Log</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0f172a" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Iron Log" />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -28,11 +34,14 @@
 
       <div id="workout-active" class="workout-active hidden">
         <div class="active-header">
-          <input id="active-workout-name" class="workout-name-input" />
+          <input id="active-workout-name" class="workout-name-input" placeholder="Name this workout (e.g. Push Day)" />
           <div class="active-timer" id="active-timer">0:00</div>
         </div>
         <div id="active-exercises" class="active-exercises"></div>
         <button id="add-exercise-btn" class="secondary-btn full">+ Add Exercise</button>
+        <label class="notes-label">Notes
+          <textarea id="workout-notes-input" placeholder="How did it feel? Anything to remember for next time..."></textarea>
+        </label>
         <div class="active-actions">
           <button id="cancel-workout-btn" class="danger-btn">Cancel</button>
           <button id="finish-workout-btn" class="primary-btn">Finish Workout</button>
@@ -93,7 +102,10 @@
   <div class="modal-sheet">
     <div class="modal-header">
       <h2 id="detail-title">Detail</h2>
-      <button id="close-detail-btn" class="link-btn">Close</button>
+      <div class="modal-header-actions">
+        <button id="share-detail-btn" class="link-btn hidden">Share</button>
+        <button id="close-detail-btn" class="link-btn">Close</button>
+      </div>
     </div>
     <div id="detail-body" class="scrollable"></div>
   </div>
@@ -116,6 +128,8 @@
   </div>
 </div>
 
+<script src="exercises-seed.js"></script>
+<script src="db.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
