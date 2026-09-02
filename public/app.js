@@ -61,7 +61,7 @@ function formatSets(sets) {
       groups.push({ reps: s.reps, weight: s.weight, warmup, count: 1 });
     }
   });
-  return groups.map(g => `${g.warmup ? 'Warmup ' : ''}${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}lbs` : ''}`).join(', ');
+  return groups.map(g => `${g.warmup ? 'Warmup ' : ''}${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}kg` : ''}`).join(', ');
 }
 
 function formatDuration(ms) {
@@ -79,7 +79,7 @@ function workoutVolume(workout) {
 function buildShareText(workout) {
   const lines = [
     `${workout.name} — ${workout.date}`,
-    `${formatDuration(workout.endedAt - workout.startedAt)} · Volume ${Math.round(workoutVolume(workout)).toLocaleString()}lbs`,
+    `${formatDuration(workout.endedAt - workout.startedAt)} · Volume ${Math.round(workoutVolume(workout)).toLocaleString()}kg`,
     ''
   ];
   workout.exercises.forEach(e => {
@@ -473,7 +473,7 @@ async function loadRoutines() {
   const routines = await db.getRoutines();
   const container = document.getElementById('routines-list');
   if (routines.length === 0) {
-    container.innerHTML = `<div class="empty-state">No routines yet. Create one to start workouts faster.</div>`;
+    container.innerHTML = `<div class="empty-state">No templates yet. Build one for a workout you plan to do, then start it with one tap whenever you repeat it.</div>`;
     return;
   }
   container.innerHTML = routines.map(r => `
@@ -498,7 +498,7 @@ async function loadRoutines() {
   });
   container.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Delete this routine?')) return;
+      if (!confirm('Delete this template?')) return;
       await db.deleteRoutine(btn.dataset.id);
       loadRoutines();
     });
@@ -579,7 +579,7 @@ function renderActiveWorkout() {
         <div class="set-row-table" data-ex="${exIdx}" data-set="${setIdx}">
           <button class="set-num ${set.warmup ? 'warmup' : ''}" title="${set.warmup ? 'Warm-up set. Tap for a working set' : 'Tap to mark as a warm-up set'}">${label}</button>
           <span class="set-prev">${prev}</span>
-          <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="lbs" value="${set.weight}" />
+          <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="kg" value="${set.weight}" />
           <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
           <button class="set-check ${set.completed ? 'done' : ''}" title="mark done">✓</button>
           <button class="set-remove" title="remove set">✕</button>
@@ -730,7 +730,7 @@ function togglePickerNewForm() {
   // is usually the exercise the search just failed to find.
   document.getElementById('picker-new-name').value = document.getElementById('picker-search').value.trim();
   document.getElementById('picker-new-save').textContent =
-    state.pickerTarget === 'routine' ? 'Create & add to routine' : 'Create & add to workout';
+    state.pickerTarget === 'routine' ? 'Create & add to template' : 'Create & add to workout';
   form.classList.remove('hidden');
   // The sheet is only so tall; hide the browse list while creating so the
   // form's save button can't get clipped off the bottom.
@@ -872,8 +872,38 @@ function openWorkoutDetail(workout) {
       </div>
     `).join('')}
     ${workout.notes ? `<div class="entry-sub" style="margin-top:10px;"><strong>Notes:</strong> ${escapeHtml(workout.notes)}</div>` : ''}
+    <button id="save-as-template-btn" class="secondary-btn full">Save this workout as a template</button>
   `;
+  document.getElementById('save-as-template-btn')
+    .addEventListener('click', () => saveWorkoutAsTemplate(workout));
   document.getElementById('detail-modal').classList.remove('hidden');
+}
+
+async function saveWorkoutAsTemplate(workout) {
+  const name = prompt('Name this template:', workout.name);
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) {
+    alert('Give this template a name.');
+    return;
+  }
+  // Warm-ups are specific to the day rather than part of the plan, so the
+  // template keeps the working sets.
+  const exercises = workout.exercises
+    .map(e => ({
+      exerciseId: e.exerciseId,
+      name: e.name,
+      sets: e.sets.filter(s => !s.warmup).map(s => ({ reps: s.reps, weight: s.weight }))
+    }))
+    .filter(e => e.sets.length > 0);
+  if (exercises.length === 0) {
+    alert('This workout has no working sets to save.');
+    return;
+  }
+  await db.addRoutine({ name: trimmed, exercises });
+  closeDetail();
+  alert(`Saved "${trimmed}" as a template. You'll find it on the Workout tab.`);
+  loadRoutines();
 }
 
 function closeDetail() {
@@ -967,8 +997,8 @@ async function openExerciseDetail(exercise) {
     <div class="entry-sub" style="margin-bottom:12px;">${escapeHtml(exercise.category)} · ${escapeHtml(exercise.equipment)}</div>
     <div class="pr-grid single">
       <div class="pr-cell">
-        <div class="pr-row"><span>Best set</span><strong>${bestWeight ? bestWeight + 'lbs' : '—'}</strong></div>
-        <div class="pr-row"><span>Est. 1RM</span><strong>${bestE1rm ? Math.round(bestE1rm) + 'lbs' : '—'}</strong></div>
+        <div class="pr-row"><span>Best set</span><strong>${bestWeight ? bestWeight + 'kg' : '—'}</strong></div>
+        <div class="pr-row"><span>Est. 1RM</span><strong>${bestE1rm ? Math.round(bestE1rm) + 'kg' : '—'}</strong></div>
         <div class="pr-row"><span>Sessions</span><strong>${sessions.length}</strong></div>
       </div>
     </div>
@@ -1048,7 +1078,7 @@ function openRoutineEditor(routine) {
   state.routineEditing = routine
     ? JSON.parse(JSON.stringify(routine))
     : { name: '', exercises: [] };
-  document.getElementById('routine-modal-title').textContent = routine ? 'Edit Routine' : 'New Routine';
+  document.getElementById('routine-modal-title').textContent = routine ? 'Edit Template' : 'New Template';
   document.getElementById('routine-name-input').value = state.routineEditing.name;
   renderRoutineEditor();
   document.getElementById('routine-modal').classList.remove('hidden');
@@ -1062,14 +1092,14 @@ function closeRoutineEditor() {
 function renderRoutineEditor() {
   const container = document.getElementById('routine-exercises');
   if (state.routineEditing.exercises.length === 0) {
-    container.innerHTML = `<div class="empty-state">Add exercises to this routine.</div>`;
+    container.innerHTML = `<div class="empty-state">Add the exercises you plan to do.</div>`;
     return;
   }
   container.innerHTML = state.routineEditing.exercises.map((ex, exIdx) => {
     const rows = ex.sets.map((set, setIdx) => `
       <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
         <span class="set-num">${setIdx + 1}</span>
-        <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="lbs" value="${set.weight}" />
+        <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="kg" value="${set.weight}" />
         <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
         <button class="set-remove" title="remove set">✕</button>
       </div>
@@ -1119,7 +1149,7 @@ function renderRoutineEditor() {
 async function saveRoutine() {
   const name = document.getElementById('routine-name-input').value.trim();
   if (!name) {
-    alert('Give this routine a name.');
+    alert('Give this template a name.');
     return;
   }
   if (state.routineEditing.exercises.length === 0) {
