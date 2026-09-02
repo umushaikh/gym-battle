@@ -123,6 +123,7 @@
       <button id="picker-new-save" class="primary-btn">Create &amp; add</button>
     </div>
     <div id="picker-list" class="list scrollable"></div>
+    <button id="picker-add-btn" class="primary-btn hidden">Add exercises</button>
   </div>
 </div>
 
@@ -131,6 +132,7 @@
     <div class="modal-header">
       <h2 id="detail-title">Detail</h2>
       <div class="modal-header-actions">
+        <button id="edit-exercise-btn" class="link-btn hidden">Edit</button>
         <button id="share-detail-btn" class="link-btn hidden">Share</button>
         <button id="close-detail-btn" class="link-btn">Close</button>
       </div>
@@ -180,6 +182,29 @@
       <p class="hint-text">Replaces everything currently in the app with a backup file.</p>
       <input type="file" id="import-file" accept="application/json,.json" />
     </div>
+  </div>
+</div>
+
+<div id="edit-exercise-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>Edit Exercise</h2>
+      <button id="close-edit-exercise-btn" class="link-btn">Close</button>
+    </div>
+    <div class="scrollable">
+      <label>Name
+        <input id="edit-exercise-name" />
+      </label>
+      <div class="row">
+        <label>Category
+          <input id="edit-exercise-category" placeholder="e.g. Chest" />
+        </label>
+        <label>Equipment
+          <input id="edit-exercise-equipment" placeholder="e.g. Dumbbell" />
+        </label>
+      </div>
+    </div>
+    <button id="save-edit-exercise-btn" class="primary-btn">Save changes</button>
   </div>
 </div>
 

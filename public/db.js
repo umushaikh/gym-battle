@@ -47,6 +47,30 @@ const db = {
     return exercise;
   },
 
+  async updateExercise(exerciseId, { name, category, equipment }) {
+    const store = loadDb();
+    const exercise = store.exercises.find(e => e.id === exerciseId);
+    if (!exercise) return null;
+    exercise.name = name;
+    exercise.category = category || 'Other';
+    exercise.equipment = equipment || 'None';
+    // Workouts and templates keep their own copy of the name for display, so
+    // update those too or old sessions keep showing the old label.
+    store.workouts.forEach(w => w.exercises.forEach(e => {
+      if (e.exerciseId === exerciseId) e.name = exercise.name;
+    }));
+    store.routines.forEach(r => r.exercises.forEach(e => {
+      if (e.exerciseId === exerciseId) e.name = exercise.name;
+    }));
+    saveDb(store);
+    return exercise;
+  },
+
+  async countSessions(exerciseId) {
+    return loadDb().workouts
+      .filter(w => w.exercises.some(e => e.exerciseId === exerciseId)).length;
+  },
+
   async getExerciseLast(exerciseId) {
     const store = loadDb();
     for (const w of workoutsDesc(store)) {
@@ -76,6 +100,7 @@ const db = {
         exerciseId: e.exerciseId,
         name: e.name,
         notes: e.notes || '',
+        linkedToPrev: !!e.linkedToPrev,
         sets: (e.sets || [])
           .filter(s => Number(s.reps) > 0 || Number(s.weight) > 0)
           .map(s => ({ reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, warmup: !!s.warmup }))

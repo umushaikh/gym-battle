@@ -311,7 +311,39 @@ label { display: block; margin-bottom: 12px; }
 }
 #exercise-picker { z-index: 60; }
 #data-modal { z-index: 65; }
+#edit-exercise-modal { z-index: 68; }
 #share-modal { z-index: 70; }
+
+/* Superset grouping: linked exercises share an accent so they read as a pair */
+.exercise-block.in-superset { border-left: 3px solid var(--ss); padding-left: 12px; }
+.exercise-block[data-ss="0"] { --ss: #a78bfa; }
+.exercise-block[data-ss="1"] { --ss: #f59e0b; }
+.exercise-block[data-ss="2"] { --ss: #38bdf8; }
+.exercise-block[data-ss="3"] { --ss: #f472b6; }
+.ss-tag {
+  color: var(--ss);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  margin: -6px 0 8px;
+}
+.ss-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+.ss-btn.on { color: var(--ss, #a78bfa); border-color: currentColor; }
+
+/* Picker multi-select */
+.picker-item.picked { box-shadow: inset 0 0 0 2px var(--accent); }
+.pick-mark { color: var(--accent); font-weight: 800; width: 14px; text-align: center; }
+#picker-add-btn { margin-top: 4px; }
 .hint-text { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0 0 12px; }
 #import-file { padding: 10px; font-size: 0.85rem; }
 .share-text {

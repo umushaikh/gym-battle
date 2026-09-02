@@ -5,6 +5,7 @@ const state = {
   activeWorkout: null,   // { name, startedAt, notes, exercises: [{exerciseId, name, sets:[{reps,weight,warmup,completed}]}] }
   lastCache: {},          // exerciseId -> { sets, date } | null
   pickerTarget: null,     // 'workout' | 'routine'
+  pickerSelection: [],    // exercise ids ticked in the picker
   routineEditing: null,   // { id?, name, exercises: [{exerciseId, name, sets:[{reps,weight}]}] }
   timerInterval: null,
   rest: null,              // { endsAt } while resting between sets
@@ -69,6 +70,23 @@ function formatDuration(ms) {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return h > 0 ? `${h}h ${m}m` : `${m} min`;
+}
+
+// A superset is a run of adjacent exercises, each linked to the one above it.
+// Returns a group number per exercise, or null when it stands alone.
+function computeSupersets(exercises) {
+  const groupOf = new Array(exercises.length).fill(null);
+  let group = -1;
+  exercises.forEach((ex, i) => {
+    if (i > 0 && ex.linkedToPrev) {
+      if (groupOf[i - 1] === null) {
+        group++;
+        groupOf[i - 1] = group;
+      }
+      groupOf[i] = groupOf[i - 1];
+    }
+  });
+  return groupOf;
 }
 
 function workoutVolume(workout) {
@@ -379,6 +397,7 @@ function bindEvents() {
   document.getElementById('close-picker-btn').addEventListener('click', closePicker);
   document.getElementById('picker-search').addEventListener('input', renderPickerList);
   document.getElementById('picker-new-btn').addEventListener('click', togglePickerNewForm);
+  document.getElementById('picker-add-btn').addEventListener('click', addPickedExercises);
   document.getElementById('picker-new-save').addEventListener('click', createExerciseFromPicker);
 
   document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
@@ -418,6 +437,8 @@ function bindEvents() {
     document.getElementById('new-exercise-form').classList.toggle('hidden');
   });
   document.getElementById('save-new-exercise-btn').addEventListener('click', createExerciseFromLibrary);
+  document.getElementById('close-edit-exercise-btn').addEventListener('click', closeExerciseEditor);
+  document.getElementById('save-edit-exercise-btn').addEventListener('click', saveExerciseEdit);
 }
 
 function switchTab(tab) {
@@ -520,6 +541,7 @@ function startFromRoutine(routine) {
       exerciseId: e.exerciseId,
       name: e.name,
       notes: '',
+      linkedToPrev: !!e.linkedToPrev,
       sets: e.sets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '', warmup: false, completed: false }))
     }))
   };
@@ -567,7 +589,9 @@ function renderActiveWorkout() {
     return;
   }
 
+  const ssGroups = computeSupersets(state.activeWorkout.exercises);
   container.innerHTML = state.activeWorkout.exercises.map((ex, exIdx) => {
+    const ss = ssGroups[exIdx];
     const last = state.lastCache[ex.exerciseId];
     let workingCount = 0;
     const rows = ex.sets.map((set, setIdx) => {
@@ -588,12 +612,14 @@ function renderActiveWorkout() {
     }).join('');
 
     return `
-      <div class="exercise-block" data-ex="${exIdx}">
+      <div class="exercise-block ${ss !== null ? 'in-superset' : ''}" data-ex="${exIdx}" data-ss="${ss === null ? '' : ss % 4}">
         <div class="exercise-block-header">
           <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
           <strong>${escapeHtml(ex.name)}</strong>
+          ${exIdx > 0 ? `<button class="ss-btn ${ex.linkedToPrev ? 'on' : ''}" data-ex="${exIdx}" title="${ex.linkedToPrev ? 'Break the superset' : 'Superset with the exercise above'}">⇄</button>` : ''}
           <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
+        ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
         <div class="set-table">
           <div class="set-table-head"><span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span></div>
           ${rows}
@@ -667,6 +693,15 @@ function bindActiveExerciseEvents() {
     });
   });
 
+  container.querySelectorAll('.ss-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ex = state.activeWorkout.exercises[Number(btn.dataset.ex)];
+      ex.linkedToPrev = !ex.linkedToPrev;
+      persistActiveWorkout();
+      renderActiveWorkout();
+    });
+  });
+
   container.querySelectorAll('.add-set-row-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const ex = state.activeWorkout.exercises[Number(btn.dataset.ex)];
@@ -721,6 +756,8 @@ function bindActiveExerciseEvents() {
     if (order.every((from, to) => from === to)) return;   // a tap, not a drag
     const previous = state.activeWorkout.exercises;
     state.activeWorkout.exercises = order.map(from => previous[from]);
+    // Nothing sits above the first exercise, so it can never continue a superset.
+    if (state.activeWorkout.exercises[0]) state.activeWorkout.exercises[0].linkedToPrev = false;
     persistActiveWorkout();
     renderActiveWorkout();
   });
@@ -756,6 +793,7 @@ async function finishWorkout() {
 // ---------- Exercise picker ----------
 function openPicker(target) {
   state.pickerTarget = target;
+  state.pickerSelection = [];
   document.getElementById('picker-search').value = '';
   hidePickerNewForm();
   renderPickerList();
@@ -771,6 +809,7 @@ function hidePickerNewForm() {
   document.getElementById('picker-new-form').classList.add('hidden');
   document.getElementById('picker-list').classList.remove('hidden');
   document.getElementById('picker-new-btn').textContent = '+ New exercise';
+  renderPickerAddButton();
   document.getElementById('picker-new-name').value = '';
   document.getElementById('picker-new-category').value = '';
   document.getElementById('picker-new-equipment').value = '';
@@ -791,6 +830,7 @@ function togglePickerNewForm() {
   // The sheet is only so tall; hide the browse list while creating so the
   // form's save button can't get clipped off the bottom.
   document.getElementById('picker-list').classList.add('hidden');
+  document.getElementById('picker-add-btn').classList.add('hidden');
   document.getElementById('picker-new-btn').textContent = 'Cancel';
   document.getElementById('picker-new-name').focus();
 }
@@ -829,18 +869,29 @@ function renderPickerList() {
     ? `<button class="entry entry-clickable" id="picker-create-btn">+ Create "${escapeHtml(query)}" and add it</button>`
     : '';
 
-  container.innerHTML = createRow + matches.map(e => `
-    <button class="entry entry-clickable picker-item" data-id="${e.id}">
+  container.innerHTML = createRow + matches.map(e => {
+    const picked = state.pickerSelection.includes(e.id);
+    return `
+    <button class="entry entry-clickable picker-item ${picked ? 'picked' : ''}" data-id="${e.id}">
       <div class="entry-main">
         <div class="entry-title">${escapeHtml(e.name)}</div>
         <div class="entry-sub">${escapeHtml(e.category)} · ${escapeHtml(e.equipment)}</div>
       </div>
+      <span class="pick-mark">${picked ? '✓' : ''}</span>
     </button>
-  `).join('');
+  `;
+  }).join('');
 
   container.querySelectorAll('.picker-item').forEach(btn => {
-    btn.addEventListener('click', () => addExerciseToTarget(state.exercises.find(e => e.id === btn.dataset.id)));
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      const at = state.pickerSelection.indexOf(id);
+      if (at === -1) state.pickerSelection.push(id);
+      else state.pickerSelection.splice(at, 1);
+      renderPickerList();
+    });
   });
+  renderPickerAddButton();
   const createBtn = document.getElementById('picker-create-btn');
   if (createBtn) {
     createBtn.addEventListener('click', async () => {
@@ -851,10 +902,31 @@ function renderPickerList() {
   }
 }
 
-async function addExerciseToTarget(exercise) {
+function renderPickerAddButton() {
+  const btn = document.getElementById('picker-add-btn');
+  const count = state.pickerSelection.length;
+  btn.classList.toggle('hidden', count === 0);
+  btn.textContent = count === 1 ? 'Add 1 exercise' : `Add ${count} exercises`;
+}
+
+async function addPickedExercises() {
+  // Added in the order they were ticked, so the workout reads the way it was
+  // built up rather than in library order.
+  const picked = state.pickerSelection
+    .map(id => state.exercises.find(e => e.id === id))
+    .filter(Boolean);
+  for (const exercise of picked) {
+    await addExerciseToTarget(exercise, { keepOpen: true });
+  }
+  state.pickerSelection = [];
+  closePicker();
+}
+
+async function addExerciseToTarget(exercise, opts) {
+  const keepOpen = opts && opts.keepOpen;
   if (state.pickerTarget === 'workout') {
     if (state.activeWorkout.exercises.some(e => e.exerciseId === exercise.id)) {
-      closePicker();
+      if (!keepOpen) closePicker();
       return;
     }
     await warmLastCache(exercise.id);
@@ -875,7 +947,7 @@ async function addExerciseToTarget(exercise) {
     });
     renderRoutineEditor();
   }
-  closePicker();
+  if (!keepOpen) closePicker();
 }
 
 // ---------- History tab ----------
@@ -914,14 +986,17 @@ async function loadHistory() {
 }
 
 function openWorkoutDetail(workout) {
+  const detailGroups = computeSupersets(workout.exercises);
   document.getElementById('detail-title').textContent = workout.name;
+  document.getElementById('edit-exercise-btn').classList.add('hidden');
   const shareBtn = document.getElementById('share-detail-btn');
   shareBtn.classList.remove('hidden');
   shareBtn.onclick = () => shareWorkout(workout);
   document.getElementById('detail-body').innerHTML = `
     <div class="entry-sub" style="margin-bottom:12px;">${workout.date} · ${formatDuration(workout.endedAt - workout.startedAt)} · vol ${Math.round(workoutVolume(workout)).toLocaleString()}</div>
-    ${workout.exercises.map(e => `
-      <div class="exercise-block">
+    ${workout.exercises.map((e, i) => `
+      <div class="exercise-block ${detailGroups[i] !== null ? 'in-superset' : ''}" data-ss="${detailGroups[i] === null ? '' : detailGroups[i] % 4}">
+        ${detailGroups[i] !== null ? '<div class="ss-tag">Superset</div>' : ''}
         <div class="exercise-block-header"><strong>${escapeHtml(e.name)}</strong></div>
         <div class="entry-sub">${formatSets(e.sets)}</div>
         ${e.notes ? `<div class="entry-sub exercise-note">“${escapeHtml(e.notes)}”</div>` : ''}
@@ -949,6 +1024,7 @@ async function saveWorkoutAsTemplate(workout) {
     .map(e => ({
       exerciseId: e.exerciseId,
       name: e.name,
+      linkedToPrev: !!e.linkedToPrev,
       sets: e.sets.filter(s => !s.warmup).map(s => ({ reps: s.reps, weight: s.weight }))
     }))
     .filter(e => e.sets.length > 0);
@@ -965,6 +1041,68 @@ async function saveWorkoutAsTemplate(workout) {
 function closeDetail() {
   document.getElementById('detail-modal').classList.add('hidden');
   document.getElementById('share-detail-btn').classList.add('hidden');
+  document.getElementById('edit-exercise-btn').classList.add('hidden');
+}
+
+function openExerciseEditor(exercise) {
+  document.getElementById('edit-exercise-name').value = exercise.name;
+  document.getElementById('edit-exercise-category').value = exercise.category || '';
+  document.getElementById('edit-exercise-equipment').value = exercise.equipment || '';
+  document.getElementById('edit-exercise-modal').dataset.id = exercise.id;
+  document.getElementById('edit-exercise-modal').classList.remove('hidden');
+}
+
+function closeExerciseEditor() {
+  document.getElementById('edit-exercise-modal').classList.add('hidden');
+}
+
+async function saveExerciseEdit() {
+  const modal = document.getElementById('edit-exercise-modal');
+  const id = modal.dataset.id;
+  const original = state.exercises.find(e => e.id === id);
+  if (!original) return;
+
+  const name = document.getElementById('edit-exercise-name').value.trim();
+  if (!name) {
+    alert('Give the exercise a name.');
+    return;
+  }
+  const category = document.getElementById('edit-exercise-category').value.trim();
+  const equipment = document.getElementById('edit-exercise-equipment').value.trim();
+
+  // Changing the equipment on a lift you already have history for mixes
+  // weights that aren't comparable: a machine incline press and a dumbbell one
+  // are different lifts. Offer to split rather than silently blending them.
+  const equipmentChanged = equipment !== (original.equipment || '');
+  const sessions = await db.countSessions(id);
+  if (equipmentChanged && sessions > 0) {
+    const separate = confirm(
+      `"${original.name}" has ${sessions} logged session${sessions !== 1 ? 's' : ''} on ${original.equipment}.\n\n` +
+      'You lift different weights on different equipment, so mixing them in one history makes the numbers and records meaningless.\n\n' +
+      'OK: keep those sessions on the old one and add this as a separate exercise.\n' +
+      'Cancel: change this exercise anyway, keeping all history together.'
+    );
+    if (separate) {
+      const created = await db.addExercise({ name, category, equipment });
+      state.exercises.push(created);
+      closeExerciseEditor();
+      closeDetail();
+      renderLibraryTab();
+      alert(`Added "${name}" as a separate exercise. "${original.name}" keeps its ${sessions} session${sessions !== 1 ? 's' : ''}.`);
+      return;
+    }
+  }
+
+  const updated = await db.updateExercise(id, { name, category, equipment });
+  Object.assign(original, updated);
+  if (state.activeWorkout) {
+    state.activeWorkout.exercises.forEach(e => { if (e.exerciseId === id) e.name = updated.name; });
+    persistActiveWorkout();
+  }
+  state.lastCache = {};
+  closeExerciseEditor();
+  closeDetail();
+  renderLibraryTab();
 }
 
 // ---------- Exercises tab (library) ----------
@@ -1030,6 +1168,9 @@ async function openExerciseDetail(exercise) {
   const sessions = await db.getExerciseHistory(exercise.id);
   document.getElementById('detail-title').textContent = exercise.name;
   document.getElementById('share-detail-btn').classList.add('hidden');
+  const editBtn = document.getElementById('edit-exercise-btn');
+  editBtn.classList.remove('hidden');
+  editBtn.onclick = () => openExerciseEditor(exercise);
 
   let bestWeight = 0, bestE1rm = 0;
   sessions.forEach(s => s.sets.forEach(set => {
@@ -1151,7 +1292,9 @@ function renderRoutineEditor() {
     container.innerHTML = `<div class="empty-state">Add the exercises you plan to do.</div>`;
     return;
   }
+  const ssGroups = computeSupersets(state.routineEditing.exercises);
   container.innerHTML = state.routineEditing.exercises.map((ex, exIdx) => {
+    const ss = ssGroups[exIdx];
     const rows = ex.sets.map((set, setIdx) => `
       <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
         <span class="set-num">${setIdx + 1}</span>
@@ -1161,12 +1304,14 @@ function renderRoutineEditor() {
       </div>
     `).join('');
     return `
-      <div class="exercise-block" data-ex="${exIdx}">
+      <div class="exercise-block ${ss !== null ? 'in-superset' : ''}" data-ex="${exIdx}" data-ss="${ss === null ? '' : ss % 4}">
         <div class="exercise-block-header">
           <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
           <strong>${escapeHtml(ex.name)}</strong>
+          ${exIdx > 0 ? `<button class="ss-btn ${ex.linkedToPrev ? 'on' : ''}" data-ex="${exIdx}" title="${ex.linkedToPrev ? 'Break the superset' : 'Superset with the exercise above'}">⇄</button>` : ''}
           <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
+        ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
         <div class="set-table target">
           <div class="set-table-head"><span>Set</span><span>Weight</span><span>Reps</span><span></span></div>
           ${rows}
@@ -1179,6 +1324,13 @@ function renderRoutineEditor() {
   container.querySelectorAll('.remove-exercise-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       state.routineEditing.exercises.splice(Number(btn.dataset.ex), 1);
+      renderRoutineEditor();
+    });
+  });
+  container.querySelectorAll('.ss-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ex = state.routineEditing.exercises[Number(btn.dataset.ex)];
+      ex.linkedToPrev = !ex.linkedToPrev;
       renderRoutineEditor();
     });
   });
@@ -1206,6 +1358,7 @@ function renderRoutineEditor() {
     if (order.every((from, to) => from === to)) return;
     const previous = state.routineEditing.exercises;
     state.routineEditing.exercises = order.map(from => previous[from]);
+    if (state.routineEditing.exercises[0]) state.routineEditing.exercises[0].linkedToPrev = false;
     renderRoutineEditor();
   });
 }
