@@ -3,124 +3,117 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Gym Battle</title>
+<title>Iron Log</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-<div id="profile-gate" class="gate">
-  <div class="gate-card">
-    <h1>🏋️ Gym Battle</h1>
-    <p>Who's logging in?</p>
-    <div id="profile-buttons" class="profile-buttons"></div>
-    <p class="rename-hint">(tap ✎ to rename a profile)</p>
-  </div>
-</div>
-
-<div id="app" class="app hidden">
+<div id="app" class="app">
   <header class="topbar">
-    <div class="brand">🏋️ Gym Battle</div>
-    <div class="whoami">
-      <span id="whoami-name"></span>
-      <button id="switch-profile" class="link-btn">switch</button>
-    </div>
+    <div class="brand">💪 Iron Log</div>
   </header>
-
-  <nav class="tabs">
-    <button class="tab-btn active" data-tab="log">Log</button>
-    <button class="tab-btn" data-tab="progress">Progress</button>
-    <button class="tab-btn" data-tab="bets">Bets</button>
-  </nav>
 
   <main class="content">
 
-    <section id="tab-log" class="tab-panel active">
-      <div class="card">
-        <h2>Log a workout</h2>
-        <form id="workout-form">
-          <label>Exercise
-            <input list="exercise-list" id="exercise-input" placeholder="e.g. Bench Press" required />
-            <datalist id="exercise-list"></datalist>
-          </label>
-          <div id="last-time-hint" class="hint"></div>
-          <label>Date
-            <input type="date" id="date-input" required />
-          </label>
+    <section id="tab-workout" class="tab-panel active">
+      <div id="workout-start" class="workout-start">
+        <button id="start-empty-btn" class="primary-btn big">+ Start Empty Workout</button>
 
-          <div id="sets-container"></div>
-          <button type="button" id="add-set-btn" class="secondary-btn">+ Add set</button>
-
-          <label>Notes (optional)
-            <input type="text" id="notes-input" placeholder="Felt strong today" />
-          </label>
-
-          <button type="submit" class="primary-btn">Save workout</button>
-        </form>
+        <div class="section-header">
+          <h2>Routines</h2>
+          <button id="new-routine-btn" class="link-btn">+ New routine</button>
+        </div>
+        <div id="routines-list" class="list"></div>
       </div>
 
-      <div class="card">
-        <h2>Recent activity</h2>
-        <div id="recent-list" class="list"></div>
+      <div id="workout-active" class="workout-active hidden">
+        <div class="active-header">
+          <input id="active-workout-name" class="workout-name-input" />
+          <div class="active-timer" id="active-timer">0:00</div>
+        </div>
+        <div id="active-exercises" class="active-exercises"></div>
+        <button id="add-exercise-btn" class="secondary-btn full">+ Add Exercise</button>
+        <div class="active-actions">
+          <button id="cancel-workout-btn" class="danger-btn">Cancel</button>
+          <button id="finish-workout-btn" class="primary-btn">Finish Workout</button>
+        </div>
       </div>
     </section>
 
-    <section id="tab-progress" class="tab-panel">
-      <div class="card">
-        <h2>Head to head</h2>
-        <label>Exercise
-          <select id="progress-exercise"></select>
+    <section id="tab-history" class="tab-panel">
+      <h2 class="panel-title">History</h2>
+      <div id="history-list" class="list"></div>
+    </section>
+
+    <section id="tab-exercises" class="tab-panel">
+      <h2 class="panel-title">Exercises</h2>
+      <div class="row">
+        <input id="exercise-search" class="search-input" placeholder="Search exercises" />
+        <button id="new-exercise-btn" class="secondary-btn">+ New</button>
+      </div>
+      <div id="new-exercise-form" class="card hidden">
+        <label>Name
+          <input id="new-exercise-name" placeholder="e.g. Cable Fly" />
         </label>
-        <div id="progress-summary" class="summary-grid"></div>
-        <canvas id="progress-chart" height="180"></canvas>
-      </div>
-
-      <div class="card">
-        <h2>Personal records &amp; history</h2>
-        <div id="exercise-detail"></div>
-      </div>
-    </section>
-
-    <section id="tab-bets" class="tab-panel">
-      <div class="card">
-        <h2>Active &amp; past bets</h2>
-        <div id="bets-list" class="list"></div>
-      </div>
-
-      <div class="card">
-        <h2>Start a new bet 😈</h2>
-        <form id="bet-form">
-          <label>What's the bet about?
-            <input type="text" id="bet-title" placeholder="e.g. Most push-ups this week" required />
+        <div class="row">
+          <label>Category
+            <input id="new-exercise-category" placeholder="e.g. Chest" />
           </label>
-          <label>Exercise (leave blank for "all exercises")
-            <input list="exercise-list" id="bet-exercise" placeholder="Any exercise" />
+          <label>Equipment
+            <input id="new-exercise-equipment" placeholder="e.g. Cable" />
           </label>
-          <label>Compare by
-            <select id="bet-metric">
-              <option value="reps">Total reps</option>
-              <option value="volume">Total volume (reps × weight)</option>
-              <option value="sets">Total sets</option>
-              <option value="max_weight">Heaviest single set</option>
-              <option value="workouts">Number of workouts logged</option>
-            </select>
-          </label>
-          <div class="row">
-            <label>Start date
-              <input type="date" id="bet-start" required />
-            </label>
-            <label>End date
-              <input type="date" id="bet-end" required />
-            </label>
-          </div>
-          <label>Stake (what the loser owes)
-            <input type="text" id="bet-stake" placeholder="e.g. loser does dishes for a week" />
-          </label>
-          <button type="submit" class="primary-btn">Place bet</button>
-        </form>
+        </div>
+        <button id="save-new-exercise-btn" class="primary-btn">Add Exercise</button>
       </div>
+      <div id="category-filters" class="chip-row"></div>
+      <div id="exercises-library-list" class="list"></div>
     </section>
 
   </main>
+
+  <nav class="tabbar">
+    <button class="tabbar-btn active" data-tab="workout"><span class="icon">🏋️</span>Workout</button>
+    <button class="tabbar-btn" data-tab="history"><span class="icon">📅</span>History</button>
+    <button class="tabbar-btn" data-tab="exercises"><span class="icon">📋</span>Exercises</button>
+  </nav>
+</div>
+
+<div id="exercise-picker" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>Add Exercise</h2>
+      <button id="close-picker-btn" class="link-btn">Close</button>
+    </div>
+    <input id="picker-search" class="search-input" placeholder="Search exercises" />
+    <div id="picker-list" class="list scrollable"></div>
+  </div>
+</div>
+
+<div id="detail-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2 id="detail-title">Detail</h2>
+      <button id="close-detail-btn" class="link-btn">Close</button>
+    </div>
+    <div id="detail-body" class="scrollable"></div>
+  </div>
+</div>
+
+<div id="routine-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2 id="routine-modal-title">New Routine</h2>
+      <button id="close-routine-btn" class="link-btn">Close</button>
+    </div>
+    <div class="scrollable">
+      <label>Routine name
+        <input id="routine-name-input" placeholder="e.g. Push Day" />
+      </label>
+      <div id="routine-exercises" class="active-exercises"></div>
+      <button id="routine-add-exercise-btn" class="secondary-btn full">+ Add Exercise</button>
+    </div>
+    <button id="save-routine-btn" class="primary-btn">Save Routine</button>
+  </div>
 </div>
 
 <script src="app.js"></script>

@@ -15,19 +15,6 @@ function asyncRoute(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
 }
 
-// ---- Profiles ----
-app.get('/api/profiles', asyncRoute(async (req, res) => {
-  res.json(await store.getProfiles());
-}));
-
-app.patch('/api/profiles/:id', asyncRoute(async (req, res) => {
-  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
-  if (!name) return res.status(400).json({ error: 'Name required' });
-  const profile = await store.renameProfile(req.params.id, name);
-  if (!profile) return res.status(404).json({ error: 'Profile not found' });
-  res.json(profile);
-}));
-
 // ---- Exercises ----
 app.get('/api/exercises', asyncRoute(async (req, res) => {
   res.json(await store.getExercises());
@@ -36,28 +23,51 @@ app.get('/api/exercises', asyncRoute(async (req, res) => {
 app.post('/api/exercises', asyncRoute(async (req, res) => {
   const name = (req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Name required' });
-  res.json(await store.addExercise(name));
+  const exercise = await store.addExercise({
+    name,
+    category: (req.body.category || '').trim(),
+    equipment: (req.body.equipment || '').trim()
+  });
+  res.status(201).json(exercise);
+}));
+
+app.get('/api/exercises/:id/last', asyncRoute(async (req, res) => {
+  res.json(await store.getExerciseLast(req.params.id));
+}));
+
+app.get('/api/exercises/:id/history', asyncRoute(async (req, res) => {
+  res.json(await store.getExerciseHistory(req.params.id));
 }));
 
 // ---- Workouts ----
 app.get('/api/workouts', asyncRoute(async (req, res) => {
-  const { profileId, exercise, from, to } = req.query;
-  res.json(await store.getWorkouts({ profileId, exercise, from, to }));
+  res.json(await store.getWorkouts());
+}));
+
+app.get('/api/workouts/:id', asyncRoute(async (req, res) => {
+  const workout = await store.getWorkout(req.params.id);
+  if (!workout) return res.status(404).json({ error: 'Not found' });
+  res.json(workout);
 }));
 
 app.post('/api/workouts', asyncRoute(async (req, res) => {
-  const { profileId, exercise, sets, date, notes } = req.body;
-  if (!profileId || !exercise || !Array.isArray(sets) || sets.length === 0 || !date) {
-    return res.status(400).json({ error: 'profileId, exercise, sets, and date are required' });
+  const { name, startedAt, endedAt, date, exercises, notes } = req.body;
+  if (!startedAt || !endedAt || !date || !Array.isArray(exercises)) {
+    return res.status(400).json({ error: 'date, startedAt, endedAt, and exercises are required' });
   }
-  if (!(await store.profileExists(profileId))) {
-    return res.status(400).json({ error: 'Unknown profile' });
+  const cleanExercises = exercises
+    .map(e => ({
+      exerciseId: e.exerciseId,
+      name: e.name,
+      sets: (e.sets || [])
+        .filter(s => Number(s.reps) > 0 || Number(s.weight) > 0)
+        .map(s => ({ reps: Number(s.reps) || 0, weight: Number(s.weight) || 0 }))
+    }))
+    .filter(e => e.sets.length > 0);
+  if (cleanExercises.length === 0) {
+    return res.status(400).json({ error: 'At least one exercise with a logged set is required' });
   }
-  const cleanSets = sets.map(s => ({
-    reps: Number(s.reps) || 0,
-    weight: Number(s.weight) || 0
-  }));
-  const workout = await store.addWorkout({ profileId, exercise, sets: cleanSets, date, notes });
+  const workout = await store.addWorkout({ name, startedAt, endedAt, date, exercises: cleanExercises, notes });
   res.status(201).json(workout);
 }));
 
@@ -67,71 +77,33 @@ app.delete('/api/workouts/:id', asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-// ---- Bets ----
-function computeMetric(workouts, metric) {
-  switch (metric) {
-    case 'volume':
-      return workouts.reduce((sum, w) => sum + w.sets.reduce((s, set) => s + set.reps * set.weight, 0), 0);
-    case 'reps':
-      return workouts.reduce((sum, w) => sum + w.sets.reduce((s, set) => s + set.reps, 0), 0);
-    case 'sets':
-      return workouts.reduce((sum, w) => sum + w.sets.length, 0);
-    case 'max_weight':
-      return workouts.reduce((max, w) => Math.max(max, ...w.sets.map(s => s.weight), 0), 0);
-    case 'workouts':
-      return workouts.length;
-    default:
-      return 0;
-  }
-}
-
-async function enrichBet(bet, profiles, allWorkouts) {
-  const standings = profiles.map(profile => {
-    let workouts = allWorkouts.filter(w => w.profileId === profile.id);
-    if (bet.exercise) workouts = workouts.filter(w => w.exercise === bet.exercise);
-    workouts = workouts.filter(w => w.date >= bet.startDate && w.date <= bet.endDate);
-    return {
-      profileId: profile.id,
-      name: profile.name,
-      value: computeMetric(workouts, bet.metric)
-    };
-  });
-  const today = new Date().toISOString().slice(0, 10);
-  const isOver = today > bet.endDate;
-  let winner = null;
-  if (isOver && standings.length) {
-    const top = Math.max(...standings.map(s => s.value));
-    const leaders = standings.filter(s => s.value === top);
-    winner = top === 0 ? null : (leaders.length > 1 ? 'tie' : leaders[0].profileId);
-  }
-  return {
-    ...bet,
-    standings,
-    status: isOver ? 'finished' : 'active',
-    winner
-  };
-}
-
-app.get('/api/bets', asyncRoute(async (req, res) => {
-  const [bets, profiles, workouts] = await Promise.all([
-    store.getBets(), store.getProfiles(), store.getWorkouts()
-  ]);
-  const enriched = await Promise.all(bets.map(b => enrichBet(b, profiles, workouts)));
-  res.json(enriched);
+// ---- Routines ----
+app.get('/api/routines', asyncRoute(async (req, res) => {
+  res.json(await store.getRoutines());
 }));
 
-app.post('/api/bets', asyncRoute(async (req, res) => {
-  const { title, exercise, metric, stake, startDate, endDate } = req.body;
-  if (!title || !metric || !startDate || !endDate) {
-    return res.status(400).json({ error: 'title, metric, startDate, and endDate are required' });
+app.post('/api/routines', asyncRoute(async (req, res) => {
+  const name = (req.body.name || '').trim();
+  const exercises = Array.isArray(req.body.exercises) ? req.body.exercises : [];
+  if (!name || exercises.length === 0) {
+    return res.status(400).json({ error: 'name and at least one exercise are required' });
   }
-  const bet = await store.addBet({ title, exercise, metric, stake, startDate, endDate });
-  const [profiles, workouts] = await Promise.all([store.getProfiles(), store.getWorkouts()]);
-  res.status(201).json(await enrichBet(bet, profiles, workouts));
+  res.status(201).json(await store.addRoutine({ name, exercises }));
 }));
 
-app.delete('/api/bets/:id', asyncRoute(async (req, res) => {
-  const found = await store.deleteBet(req.params.id);
+app.put('/api/routines/:id', asyncRoute(async (req, res) => {
+  const name = (req.body.name || '').trim();
+  const exercises = Array.isArray(req.body.exercises) ? req.body.exercises : [];
+  if (!name || exercises.length === 0) {
+    return res.status(400).json({ error: 'name and at least one exercise are required' });
+  }
+  const routine = await store.updateRoutine(req.params.id, { name, exercises });
+  if (!routine) return res.status(404).json({ error: 'Not found' });
+  res.json(routine);
+}));
+
+app.delete('/api/routines/:id', asyncRoute(async (req, res) => {
+  const found = await store.deleteRoutine(req.params.id);
   if (!found) return res.status(404).json({ error: 'Not found' });
   res.status(204).end();
 }));
@@ -150,7 +122,7 @@ store.init().then(() => {
         if (net.family === 'IPv4' && !net.internal) addresses.push(net.address);
       }
     }
-    console.log(`\nGym Battle running! (${process.env.DATABASE_URL ? 'Postgres' : 'local JSON'} storage)`);
+    console.log(`\nIron Log running! (${process.env.DATABASE_URL ? 'Postgres' : 'local JSON'} storage)`);
     console.log(`  Local:   http://localhost:${PORT}`);
     addresses.forEach(addr => console.log(`  Network: http://${addr}:${PORT}  <-- use this on your phone (same WiFi)`));
     console.log('');

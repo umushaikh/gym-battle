@@ -1,7 +1,13 @@
+const ACTIVE_WORKOUT_KEY = 'ironLogActiveWorkout';
+
 const state = {
-  profiles: [],
   exercises: [],
-  currentProfileId: localStorage.getItem('gymBattleProfileId') || null
+  activeWorkout: null,   // { name, startedAt, exercises: [{exerciseId, name, sets:[{reps,weight,completed}]}] }
+  lastCache: {},          // exerciseId -> { sets, date } | null
+  pickerTarget: null,     // 'workout' | 'routine'
+  routineEditing: null,   // { id?, name, exercises: [{exerciseId, name, sets:[{reps,weight}]}] }
+  timerInterval: null,
+  categoryFilter: ''
 };
 
 async function api(path, opts) {
@@ -17,147 +23,21 @@ async function api(path, opts) {
   return res.json();
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function profileName(id) {
-  const p = state.profiles.find(p => p.id === id);
-  return p ? p.name : 'Unknown';
-}
-function profileColor(id) {
-  const p = state.profiles.find(p => p.id === id);
-  return p ? p.color : '#888';
+function e1rm(reps, weight) {
+  if (!weight || !reps) return 0;
+  return weight * (1 + reps / 30);
 }
 
-// ---------- Init ----------
-async function init() {
-  state.profiles = await api('/profiles');
-  state.exercises = await api('/exercises');
-  renderExerciseList();
-
-  if (state.currentProfileId && state.profiles.some(p => p.id === state.currentProfileId)) {
-    showApp();
-  } else {
-    showGate();
-  }
-
-  document.getElementById('date-input').value = todayStr();
-  document.getElementById('bet-start').value = todayStr();
-  const endDefault = new Date();
-  endDefault.setDate(endDefault.getDate() + 7);
-  document.getElementById('bet-end').value = endDefault.toISOString().slice(0, 10);
-
-  addSetRow();
-  bindEvents();
-  loadRecent();
-  loadProgress();
-  loadBets();
-}
-
-function showGate() {
-  const container = document.getElementById('profile-buttons');
-  container.innerHTML = '';
-  state.profiles.forEach(p => {
-    const wrap = document.createElement('div');
-    wrap.className = 'profile-row';
-
-    const btn = document.createElement('button');
-    btn.className = 'profile-btn';
-    btn.style.background = p.color;
-    btn.textContent = `I'm ${p.name}`;
-    btn.onclick = () => {
-      state.currentProfileId = p.id;
-      localStorage.setItem('gymBattleProfileId', p.id);
-      showApp();
-    };
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'edit-profile-btn';
-    editBtn.textContent = '✎';
-    editBtn.title = 'Rename';
-    editBtn.onclick = () => renameProfile(p.id);
-
-    wrap.appendChild(btn);
-    wrap.appendChild(editBtn);
-    container.appendChild(wrap);
-  });
-  document.getElementById('profile-gate').classList.remove('hidden');
-  document.getElementById('app').classList.add('hidden');
-}
-
-async function renameProfile(id) {
-  const current = state.profiles.find(p => p.id === id);
-  const name = prompt('Enter a name:', current.name);
-  if (!name || !name.trim() || name.trim() === current.name) return;
-  const updated = await api(`/profiles/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ name: name.trim() })
-  });
-  current.name = updated.name;
-  showGate();
-  if (state.currentProfileId) {
-    document.getElementById('whoami-name').textContent = profileName(state.currentProfileId);
-  }
-}
-
-function showApp() {
-  document.getElementById('profile-gate').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  document.getElementById('whoami-name').textContent = profileName(state.currentProfileId);
-  loadRecent();
-  loadBets();
-}
-
-function renderExerciseList() {
-  const list = document.getElementById('exercise-list');
-  list.innerHTML = state.exercises.map(e => `<option value="${escapeHtml(e)}">`).join('');
-  const select = document.getElementById('progress-exercise');
-  const prev = select.value;
-  select.innerHTML = `<option value="">All exercises</option>` +
-    state.exercises.map(e => `<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`).join('');
-  if (prev) select.value = prev;
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-// ---------- Tabs ----------
-function bindEvents() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-      if (btn.dataset.tab === 'progress') loadProgress();
-      if (btn.dataset.tab === 'bets') loadBets();
-    });
-  });
-
-  document.getElementById('switch-profile').addEventListener('click', () => {
-    state.currentProfileId = null;
-    localStorage.removeItem('gymBattleProfileId');
-    showGate();
-  });
-
-  document.getElementById('add-set-btn').addEventListener('click', addSetRow);
-  document.getElementById('workout-form').addEventListener('submit', submitWorkout);
-  document.getElementById('bet-form').addEventListener('submit', submitBet);
-  document.getElementById('progress-exercise').addEventListener('change', loadProgress);
-
-  let hintDebounce;
-  document.getElementById('exercise-input').addEventListener('input', () => {
-    clearTimeout(hintDebounce);
-    hintDebounce = setTimeout(updateLastTimeHint, 300);
-  });
-  document.getElementById('exercise-input').addEventListener('change', updateLastTimeHint);
-}
-
-// ---------- Last-time hint ----------
 function formatSets(sets) {
   const groups = [];
   sets.forEach(s => {
@@ -171,219 +51,558 @@ function formatSets(sets) {
   return groups.map(g => `${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}lbs` : ''}`).join(', ');
 }
 
-async function updateLastTimeHint() {
-  const exercise = document.getElementById('exercise-input').value.trim();
-  const hintEl = document.getElementById('last-time-hint');
-  if (!exercise || !state.currentProfileId) {
-    hintEl.textContent = '';
-    return;
-  }
-  const workouts = await api(`/workouts?profileId=${encodeURIComponent(state.currentProfileId)}&exercise=${encodeURIComponent(exercise)}`);
-  hintEl.textContent = workouts.length
-    ? `Last time (${workouts[0].date}): ${formatSets(workouts[0].sets)}`
-    : '';
+function formatDuration(ms) {
+  const totalMin = Math.max(0, Math.round(ms / 60000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m} min`;
 }
 
-// ---------- Log tab ----------
-function addSetRow() {
-  const container = document.getElementById('sets-container');
-  const idx = container.children.length + 1;
-  const row = document.createElement('div');
-  row.className = 'set-row';
-  row.innerHTML = `
-    <span>Set ${idx}</span>
-    <input type="number" min="0" class="set-reps" placeholder="reps" required style="margin-top:0" />
-    <input type="number" min="0" step="0.5" class="set-weight" placeholder="weight (lbs)" style="margin-top:0" />
-    <button type="button" title="remove set">✕</button>
-  `;
-  row.querySelector('button').addEventListener('click', () => {
-    row.remove();
-    renumberSets();
+function workoutVolume(workout) {
+  return workout.exercises.reduce((sum, e) =>
+    sum + e.sets.reduce((s, set) => s + set.reps * set.weight, 0), 0);
+}
+
+// ---------- Init ----------
+async function init() {
+  state.exercises = await api('/exercises');
+  restoreActiveWorkout();
+  bindEvents();
+  renderWorkoutTab();
+}
+
+function bindEvents() {
+  document.querySelectorAll('.tabbar-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-  container.appendChild(row);
-}
 
-function renumberSets() {
-  document.querySelectorAll('#sets-container .set-row span').forEach((span, i) => {
-    span.textContent = `Set ${i + 1}`;
-  });
-}
-
-async function submitWorkout(e) {
-  e.preventDefault();
-  const exercise = document.getElementById('exercise-input').value.trim();
-  const date = document.getElementById('date-input').value;
-  const notes = document.getElementById('notes-input').value.trim();
-  const sets = [...document.querySelectorAll('#sets-container .set-row')].map(row => ({
-    reps: row.querySelector('.set-reps').value,
-    weight: row.querySelector('.set-weight').value || 0
-  }));
-
-  try {
-    await api('/workouts', {
-      method: 'POST',
-      body: JSON.stringify({ profileId: state.currentProfileId, exercise, sets, date, notes })
-    });
-    document.getElementById('workout-form').reset();
-    document.getElementById('date-input').value = todayStr();
-    document.getElementById('sets-container').innerHTML = '';
-    addSetRow();
-    if (!state.exercises.includes(exercise)) {
-      state.exercises.push(exercise);
-      renderExerciseList();
+  document.getElementById('start-empty-btn').addEventListener('click', startEmptyWorkout);
+  document.getElementById('add-exercise-btn').addEventListener('click', () => openPicker('workout'));
+  document.getElementById('cancel-workout-btn').addEventListener('click', cancelWorkout);
+  document.getElementById('finish-workout-btn').addEventListener('click', finishWorkout);
+  document.getElementById('active-workout-name').addEventListener('input', e => {
+    if (state.activeWorkout) {
+      state.activeWorkout.name = e.target.value;
+      persistActiveWorkout();
     }
-    loadRecent();
-  } catch (err) {
-    alert(err.message);
+  });
+
+  document.getElementById('close-picker-btn').addEventListener('click', closePicker);
+  document.getElementById('picker-search').addEventListener('input', renderPickerList);
+
+  document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
+
+  document.getElementById('new-routine-btn').addEventListener('click', () => openRoutineEditor(null));
+  document.getElementById('close-routine-btn').addEventListener('click', closeRoutineEditor);
+  document.getElementById('routine-add-exercise-btn').addEventListener('click', () => openPicker('routine'));
+  document.getElementById('save-routine-btn').addEventListener('click', saveRoutine);
+  document.getElementById('routine-name-input').addEventListener('input', e => {
+    if (state.routineEditing) state.routineEditing.name = e.target.value;
+  });
+
+  document.getElementById('exercise-search').addEventListener('input', renderLibraryList);
+  document.getElementById('new-exercise-btn').addEventListener('click', () => {
+    document.getElementById('new-exercise-form').classList.toggle('hidden');
+  });
+  document.getElementById('save-new-exercise-btn').addEventListener('click', createExerciseFromLibrary);
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tabbar-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  if (tab === 'workout') renderWorkoutTab();
+  if (tab === 'history') loadHistory();
+  if (tab === 'exercises') renderLibraryTab();
+}
+
+// ---------- Active workout persistence ----------
+function persistActiveWorkout() {
+  if (state.activeWorkout) {
+    localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(state.activeWorkout));
+  } else {
+    localStorage.removeItem(ACTIVE_WORKOUT_KEY);
   }
 }
 
-async function loadRecent() {
-  const workouts = await api('/workouts');
-  const container = document.getElementById('recent-list');
-  if (workouts.length === 0) {
-    container.innerHTML = `<div class="empty-state">No workouts logged yet. Add one above!</div>`;
+function restoreActiveWorkout() {
+  const raw = localStorage.getItem(ACTIVE_WORKOUT_KEY);
+  if (!raw) return;
+  try {
+    state.activeWorkout = JSON.parse(raw);
+    state.activeWorkout.exercises.forEach(e => warmLastCache(e.exerciseId));
+  } catch {
+    localStorage.removeItem(ACTIVE_WORKOUT_KEY);
+  }
+}
+
+async function warmLastCache(exerciseId) {
+  if (exerciseId in state.lastCache) return;
+  state.lastCache[exerciseId] = await api(`/exercises/${exerciseId}/last`);
+}
+
+// ---------- Workout tab: start screen ----------
+function renderWorkoutTab() {
+  if (state.activeWorkout) {
+    document.getElementById('workout-start').classList.add('hidden');
+    document.getElementById('workout-active').classList.remove('hidden');
+    renderActiveWorkout();
+    startTimer();
+  } else {
+    document.getElementById('workout-start').classList.remove('hidden');
+    document.getElementById('workout-active').classList.add('hidden');
+    stopTimer();
+    loadRoutines();
+  }
+}
+
+async function loadRoutines() {
+  const routines = await api('/routines');
+  const container = document.getElementById('routines-list');
+  if (routines.length === 0) {
+    container.innerHTML = `<div class="empty-state">No routines yet. Create one to start workouts faster.</div>`;
     return;
   }
-  container.innerHTML = workouts.slice(0, 20).map(w => {
-    const totalReps = w.sets.reduce((s, set) => s + set.reps, 0);
-    const maxWeight = Math.max(0, ...w.sets.map(s => s.weight));
-    const setsDesc = `${w.sets.length} set${w.sets.length !== 1 ? 's' : ''} · ${totalReps} reps${maxWeight ? ` · up to ${maxWeight}lbs` : ''}`;
-    return `
-      <div class="entry">
-        <div class="entry-main">
-          <div class="entry-title">${escapeHtml(w.exercise)}</div>
-          <div class="entry-sub">${w.date} · ${setsDesc}${w.notes ? ` · "${escapeHtml(w.notes)}"` : ''}</div>
-        </div>
-        <span class="entry-badge" style="background:${profileColor(w.profileId)}">${escapeHtml(profileName(w.profileId))}</span>
-        <button class="del-btn" data-id="${w.id}" title="delete">🗑</button>
+  container.innerHTML = routines.map(r => `
+    <div class="routine-card">
+      <div class="routine-main">
+        <div class="entry-title">${escapeHtml(r.name)}</div>
+        <div class="entry-sub">${r.exercises.length} exercise${r.exercises.length !== 1 ? 's' : ''}</div>
       </div>
-    `;
-  }).join('');
-  container.querySelectorAll('.del-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('Delete this workout entry?')) return;
-      await api(`/workouts/${btn.dataset.id}`, { method: 'DELETE' });
-      loadRecent();
-      loadProgress();
-      loadBets();
-    });
-  });
-}
-
-// ---------- Progress tab ----------
-async function loadProgress() {
-  const exercise = document.getElementById('progress-exercise').value;
-  const query = exercise ? `?exercise=${encodeURIComponent(exercise)}` : '';
-  const workouts = await api(`/workouts${query}`);
-
-  const totals = {};
-  state.profiles.forEach(p => totals[p.id] = 0);
-  workouts.forEach(w => {
-    const vol = w.sets.reduce((s, set) => s + set.reps * set.weight, 0);
-    totals[w.profileId] = (totals[w.profileId] || 0) + vol;
-  });
-  const leaderId = Object.entries(totals).sort((a, b) => b[1] - a[1])[0]?.[0];
-
-  const summary = document.getElementById('progress-summary');
-  summary.innerHTML = state.profiles.map(p => `
-    <div class="summary-cell ${totals[p.id] === totals[leaderId] && totals[leaderId] > 0 ? 'leader' : ''}">
-      <div class="name" style="color:${p.color}">${escapeHtml(p.name)}</div>
-      <div class="value">${Math.round(totals[p.id]).toLocaleString()}</div>
-      <div style="color:var(--muted);font-size:0.75rem">total volume</div>
+      <div class="routine-actions">
+        <button class="secondary-btn small start-routine-btn" data-id="${r.id}">Start</button>
+        <button class="icon-btn edit-routine-btn" data-id="${r.id}" title="edit">✎</button>
+        <button class="icon-btn del-btn" data-id="${r.id}" title="delete">🗑</button>
+      </div>
     </div>
   `).join('');
 
-  drawChart(workouts);
-  renderExerciseDetail(exercise, workouts);
+  container.querySelectorAll('.start-routine-btn').forEach(btn => {
+    btn.addEventListener('click', () => startFromRoutine(routines.find(r => r.id === btn.dataset.id)));
+  });
+  container.querySelectorAll('.edit-routine-btn').forEach(btn => {
+    btn.addEventListener('click', () => openRoutineEditor(routines.find(r => r.id === btn.dataset.id)));
+  });
+  container.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this routine?')) return;
+      await api(`/routines/${btn.dataset.id}`, { method: 'DELETE' });
+      loadRoutines();
+    });
+  });
 }
 
-function e1rm(reps, weight) {
-  if (!weight || !reps) return 0;
-  return weight * (1 + reps / 30);
+function startEmptyWorkout() {
+  state.activeWorkout = { name: 'Workout', startedAt: Date.now(), exercises: [] };
+  persistActiveWorkout();
+  renderWorkoutTab();
 }
 
-function renderExerciseDetail(exercise, workouts) {
-  const container = document.getElementById('exercise-detail');
-  if (!exercise) {
-    container.innerHTML = `<div class="empty-state">Pick a specific exercise above to see personal records and history.</div>`;
+function startFromRoutine(routine) {
+  state.activeWorkout = {
+    name: routine.name,
+    startedAt: Date.now(),
+    exercises: routine.exercises.map(e => ({
+      exerciseId: e.exerciseId,
+      name: e.name,
+      sets: e.sets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '', completed: false }))
+    }))
+  };
+  state.activeWorkout.exercises.forEach(e => warmLastCache(e.exerciseId).then(renderActiveWorkout));
+  persistActiveWorkout();
+  renderWorkoutTab();
+}
+
+function cancelWorkout() {
+  if (!confirm('Discard this workout? This cannot be undone.')) return;
+  state.activeWorkout = null;
+  persistActiveWorkout();
+  renderWorkoutTab();
+}
+
+// ---------- Active workout ----------
+function startTimer() {
+  stopTimer();
+  updateTimerDisplay();
+  state.timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+function stopTimer() {
+  if (state.timerInterval) clearInterval(state.timerInterval);
+  state.timerInterval = null;
+}
+
+function updateTimerDisplay() {
+  if (!state.activeWorkout) return;
+  const elapsed = Date.now() - state.activeWorkout.startedAt;
+  const totalSec = Math.max(0, Math.floor(elapsed / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  document.getElementById('active-timer').textContent = `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function renderActiveWorkout() {
+  document.getElementById('active-workout-name').value = state.activeWorkout.name;
+  const container = document.getElementById('active-exercises');
+
+  if (state.activeWorkout.exercises.length === 0) {
+    container.innerHTML = `<div class="empty-state">Add an exercise to get started.</div>`;
     return;
   }
 
-  const byProfile = {};
-  state.profiles.forEach(p => byProfile[p.id] = []);
-  workouts.forEach(w => { (byProfile[w.profileId] = byProfile[w.profileId] || []).push(w); });
+  container.innerHTML = state.activeWorkout.exercises.map((ex, exIdx) => {
+    const last = state.lastCache[ex.exerciseId];
+    const rows = ex.sets.map((set, setIdx) => {
+      const prev = last && last.sets[setIdx]
+        ? `${last.sets[setIdx].weight || 0}×${last.sets[setIdx].reps || 0}`
+        : '—';
+      return `
+        <div class="set-row-table" data-ex="${exIdx}" data-set="${setIdx}">
+          <span class="set-num">${setIdx + 1}</span>
+          <span class="set-prev">${prev}</span>
+          <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="lbs" value="${set.weight}" />
+          <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
+          <button class="set-check ${set.completed ? 'done' : ''}" title="mark done">✓</button>
+          <button class="set-remove" title="remove set">✕</button>
+        </div>
+      `;
+    }).join('');
 
-  const prHtml = state.profiles.map(p => {
-    const ws = byProfile[p.id] || [];
-    let bestWeight = 0, bestE1rm = 0;
-    ws.forEach(w => w.sets.forEach(s => {
-      if (s.weight > bestWeight) bestWeight = s.weight;
-      bestE1rm = Math.max(bestE1rm, e1rm(s.reps, s.weight));
-    }));
     return `
-      <div class="pr-cell">
-        <div class="name" style="color:${p.color}">${escapeHtml(p.name)}</div>
-        <div class="pr-row"><span>Best set</span><strong>${bestWeight ? bestWeight + 'lbs' : '—'}</strong></div>
-        <div class="pr-row"><span>Est. 1RM</span><strong>${bestE1rm ? Math.round(bestE1rm) + 'lbs' : '—'}</strong></div>
-        <div class="pr-row"><span>Sessions</span><strong>${ws.length}</strong></div>
+      <div class="exercise-block" data-ex="${exIdx}">
+        <div class="exercise-block-header">
+          <strong>${escapeHtml(ex.name)}</strong>
+          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
+        </div>
+        <div class="set-table">
+          <div class="set-table-head"><span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span></div>
+          ${rows}
+        </div>
+        <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
       </div>
     `;
   }).join('');
 
-  const historyHtml = workouts.slice(0, 15).map(w => {
-    const vol = w.sets.reduce((s, set) => s + set.reps * set.weight, 0);
-    return `
-      <div class="entry">
-        <div class="entry-main">
-          <div class="entry-title">${w.date}</div>
-          <div class="entry-sub">${formatSets(w.sets)} · vol ${Math.round(vol).toLocaleString()}</div>
-        </div>
-        <span class="entry-badge" style="background:${profileColor(w.profileId)}">${escapeHtml(profileName(w.profileId))}</span>
-      </div>
-    `;
-  }).join('') || `<div class="empty-state">No sessions logged for this exercise yet.</div>`;
+  bindActiveExerciseEvents();
+}
 
-  container.innerHTML = `
-    <div class="pr-grid">${prHtml}</div>
+function bindActiveExerciseEvents() {
+  const container = document.getElementById('active-exercises');
+
+  container.querySelectorAll('.remove-exercise-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.activeWorkout.exercises.splice(Number(btn.dataset.ex), 1);
+      persistActiveWorkout();
+      renderActiveWorkout();
+    });
+  });
+
+  container.querySelectorAll('.add-set-row-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ex = state.activeWorkout.exercises[Number(btn.dataset.ex)];
+      const lastSet = ex.sets[ex.sets.length - 1];
+      ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', completed: false });
+      persistActiveWorkout();
+      renderActiveWorkout();
+    });
+  });
+
+  container.querySelectorAll('.set-row-table').forEach(row => {
+    const exIdx = Number(row.dataset.ex);
+    const setIdx = Number(row.dataset.set);
+    const set = state.activeWorkout.exercises[exIdx].sets[setIdx];
+
+    row.querySelector('.set-weight-input').addEventListener('input', e => {
+      set.weight = e.target.value;
+      persistActiveWorkout();
+    });
+    row.querySelector('.set-reps-input').addEventListener('input', e => {
+      set.reps = e.target.value;
+      persistActiveWorkout();
+    });
+    row.querySelector('.set-check').addEventListener('click', () => {
+      set.completed = !set.completed;
+      persistActiveWorkout();
+      renderActiveWorkout();
+    });
+    row.querySelector('.set-remove').addEventListener('click', () => {
+      state.activeWorkout.exercises[exIdx].sets.splice(setIdx, 1);
+      persistActiveWorkout();
+      renderActiveWorkout();
+    });
+  });
+}
+
+async function finishWorkout() {
+  const hasLoggedSet = state.activeWorkout.exercises.some(e =>
+    e.sets.some(s => Number(s.reps) > 0 || Number(s.weight) > 0));
+  if (!hasLoggedSet) {
+    alert('Log at least one set before finishing.');
+    return;
+  }
+  const payload = {
+    name: state.activeWorkout.name || 'Workout',
+    startedAt: state.activeWorkout.startedAt,
+    endedAt: Date.now(),
+    date: todayStr(),
+    exercises: state.activeWorkout.exercises,
+    notes: ''
+  };
+  await api('/workouts', { method: 'POST', body: JSON.stringify(payload) });
+  state.activeWorkout = null;
+  persistActiveWorkout();
+  renderWorkoutTab();
+  switchTab('history');
+}
+
+// ---------- Exercise picker ----------
+function openPicker(target) {
+  state.pickerTarget = target;
+  document.getElementById('picker-search').value = '';
+  renderPickerList();
+  document.getElementById('exercise-picker').classList.remove('hidden');
+}
+
+function closePicker() {
+  document.getElementById('exercise-picker').classList.add('hidden');
+}
+
+function renderPickerList() {
+  const query = document.getElementById('picker-search').value.trim().toLowerCase();
+  const matches = state.exercises.filter(e => e.name.toLowerCase().includes(query));
+  const container = document.getElementById('picker-list');
+
+  const exactMatch = state.exercises.some(e => e.name.toLowerCase() === query);
+  const createRow = query && !exactMatch
+    ? `<button class="entry entry-clickable" id="picker-create-btn">+ Add "${escapeHtml(query)}" as new exercise</button>`
+    : '';
+
+  container.innerHTML = createRow + matches.map(e => `
+    <button class="entry entry-clickable picker-item" data-id="${e.id}">
+      <div class="entry-main">
+        <div class="entry-title">${escapeHtml(e.name)}</div>
+        <div class="entry-sub">${escapeHtml(e.category)} · ${escapeHtml(e.equipment)}</div>
+      </div>
+    </button>
+  `).join('');
+
+  container.querySelectorAll('.picker-item').forEach(btn => {
+    btn.addEventListener('click', () => addExerciseToTarget(state.exercises.find(e => e.id === btn.dataset.id)));
+  });
+  const createBtn = document.getElementById('picker-create-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', async () => {
+      const exercise = await api('/exercises', { method: 'POST', body: JSON.stringify({ name: document.getElementById('picker-search').value.trim() }) });
+      state.exercises.push(exercise);
+      addExerciseToTarget(exercise);
+    });
+  }
+}
+
+async function addExerciseToTarget(exercise) {
+  if (state.pickerTarget === 'workout') {
+    if (state.activeWorkout.exercises.some(e => e.exerciseId === exercise.id)) {
+      closePicker();
+      return;
+    }
+    await warmLastCache(exercise.id);
+    const last = state.lastCache[exercise.id];
+    state.activeWorkout.exercises.push({
+      exerciseId: exercise.id,
+      name: exercise.name,
+      sets: [{ reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', completed: false }]
+    });
+    persistActiveWorkout();
+    renderActiveWorkout();
+  } else if (state.pickerTarget === 'routine') {
+    state.routineEditing.exercises.push({
+      exerciseId: exercise.id,
+      name: exercise.name,
+      sets: [{ reps: 8, weight: 0 }, { reps: 8, weight: 0 }, { reps: 8, weight: 0 }]
+    });
+    renderRoutineEditor();
+  }
+  closePicker();
+}
+
+// ---------- History tab ----------
+async function loadHistory() {
+  const workouts = await api('/workouts');
+  const container = document.getElementById('history-list');
+  if (workouts.length === 0) {
+    container.innerHTML = `<div class="empty-state">No workouts logged yet. Finish one to see it here.</div>`;
+    return;
+  }
+  container.innerHTML = workouts.map(w => `
+    <div class="entry entry-clickable history-item" data-id="${w.id}">
+      <div class="entry-main">
+        <div class="entry-title">${escapeHtml(w.name)}</div>
+        <div class="entry-sub">${w.date} · ${formatDuration(w.endedAt - w.startedAt)} · ${w.exercises.length} exercises · vol ${Math.round(workoutVolume(w)).toLocaleString()}</div>
+      </div>
+      <button class="icon-btn del-btn" data-id="${w.id}" title="delete">🗑</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.history-item').forEach(btn => {
+    btn.addEventListener('click', e => {
+      if (e.target.closest('.del-btn')) return;
+      openWorkoutDetail(workouts.find(w => w.id === btn.dataset.id));
+    });
+  });
+  container.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!confirm('Delete this workout?')) return;
+      await api(`/workouts/${btn.dataset.id}`, { method: 'DELETE' });
+      loadHistory();
+    });
+  });
+}
+
+function openWorkoutDetail(workout) {
+  document.getElementById('detail-title').textContent = workout.name;
+  document.getElementById('detail-body').innerHTML = `
+    <div class="entry-sub" style="margin-bottom:12px;">${workout.date} · ${formatDuration(workout.endedAt - workout.startedAt)} · vol ${Math.round(workoutVolume(workout)).toLocaleString()}</div>
+    ${workout.exercises.map(e => `
+      <div class="exercise-block">
+        <div class="exercise-block-header"><strong>${escapeHtml(e.name)}</strong></div>
+        <div class="entry-sub">${formatSets(e.sets)}</div>
+      </div>
+    `).join('')}
+  `;
+  document.getElementById('detail-modal').classList.remove('hidden');
+}
+
+function closeDetail() {
+  document.getElementById('detail-modal').classList.add('hidden');
+}
+
+// ---------- Exercises tab (library) ----------
+function renderLibraryTab() {
+  renderCategoryFilters();
+  renderLibraryList();
+}
+
+function renderCategoryFilters() {
+  const categories = ['', ...new Set(state.exercises.map(e => e.category))];
+  const container = document.getElementById('category-filters');
+  container.innerHTML = categories.map(c => `
+    <button class="chip ${state.categoryFilter === c ? 'active' : ''}" data-cat="${escapeHtml(c)}">${c ? escapeHtml(c) : 'All'}</button>
+  `).join('');
+  container.querySelectorAll('.chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.categoryFilter = btn.dataset.cat;
+      renderCategoryFilters();
+      renderLibraryList();
+    });
+  });
+}
+
+function renderLibraryList() {
+  const query = document.getElementById('exercise-search').value.trim().toLowerCase();
+  const matches = state.exercises.filter(e =>
+    e.name.toLowerCase().includes(query) &&
+    (!state.categoryFilter || e.category === state.categoryFilter)
+  );
+  const container = document.getElementById('exercises-library-list');
+  if (matches.length === 0) {
+    container.innerHTML = `<div class="empty-state">No exercises found.</div>`;
+    return;
+  }
+  container.innerHTML = matches.map(e => `
+    <button class="entry entry-clickable lib-item" data-id="${e.id}">
+      <div class="entry-main">
+        <div class="entry-title">${escapeHtml(e.name)}</div>
+        <div class="entry-sub">${escapeHtml(e.category)} · ${escapeHtml(e.equipment)}</div>
+      </div>
+    </button>
+  `).join('');
+  container.querySelectorAll('.lib-item').forEach(btn => {
+    btn.addEventListener('click', () => openExerciseDetail(state.exercises.find(e => e.id === btn.dataset.id)));
+  });
+}
+
+async function createExerciseFromLibrary() {
+  const name = document.getElementById('new-exercise-name').value.trim();
+  if (!name) return;
+  const category = document.getElementById('new-exercise-category').value.trim();
+  const equipment = document.getElementById('new-exercise-equipment').value.trim();
+  const exercise = await api('/exercises', { method: 'POST', body: JSON.stringify({ name, category, equipment }) });
+  state.exercises.push(exercise);
+  document.getElementById('new-exercise-name').value = '';
+  document.getElementById('new-exercise-category').value = '';
+  document.getElementById('new-exercise-equipment').value = '';
+  document.getElementById('new-exercise-form').classList.add('hidden');
+  renderLibraryTab();
+}
+
+async function openExerciseDetail(exercise) {
+  const sessions = await api(`/exercises/${exercise.id}/history`);
+  document.getElementById('detail-title').textContent = exercise.name;
+
+  let bestWeight = 0, bestE1rm = 0;
+  sessions.forEach(s => s.sets.forEach(set => {
+    if (set.weight > bestWeight) bestWeight = set.weight;
+    bestE1rm = Math.max(bestE1rm, e1rm(set.reps, set.weight));
+  }));
+
+  const historyHtml = sessions.length
+    ? sessions.map(s => `
+        <div class="entry">
+          <div class="entry-main">
+            <div class="entry-title">${s.date}</div>
+            <div class="entry-sub">${formatSets(s.sets)}</div>
+          </div>
+        </div>
+      `).join('')
+    : `<div class="empty-state">No sessions logged for this exercise yet.</div>`;
+
+  document.getElementById('detail-body').innerHTML = `
+    <div class="entry-sub" style="margin-bottom:12px;">${escapeHtml(exercise.category)} · ${escapeHtml(exercise.equipment)}</div>
+    <div class="pr-grid single">
+      <div class="pr-cell">
+        <div class="pr-row"><span>Best set</span><strong>${bestWeight ? bestWeight + 'lbs' : '—'}</strong></div>
+        <div class="pr-row"><span>Est. 1RM</span><strong>${bestE1rm ? Math.round(bestE1rm) + 'lbs' : '—'}</strong></div>
+        <div class="pr-row"><span>Sessions</span><strong>${sessions.length}</strong></div>
+      </div>
+    </div>
+    <canvas id="exercise-chart" height="160"></canvas>
     <h3 class="subheading">History</h3>
     <div class="list">${historyHtml}</div>
   `;
+  document.getElementById('detail-modal').classList.remove('hidden');
+  drawExerciseChart(sessions);
 }
 
-function drawChart(workouts) {
-  const canvas = document.getElementById('progress-chart');
+function drawExerciseChart(sessions) {
+  const canvas = document.getElementById('exercise-chart');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || 300;
-  const height = 180;
+  const height = 160;
   canvas.width = width * dpr;
   canvas.height = height * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  // group by date -> volume per profile
-  const byDate = {};
-  workouts.forEach(w => {
-    const vol = w.sets.reduce((s, set) => s + set.reps * set.weight, 0);
-    byDate[w.date] = byDate[w.date] || {};
-    byDate[w.date][w.profileId] = (byDate[w.date][w.profileId] || 0) + vol;
-  });
-  const dates = Object.keys(byDate).sort();
-  if (dates.length === 0) {
+  const points = [...sessions].reverse().map(s => ({
+    date: s.date,
+    value: Math.max(0, ...s.sets.map(set => e1rm(set.reps, set.weight)))
+  }));
+  if (points.length === 0) {
     ctx.fillStyle = '#94a3b8';
     ctx.font = '13px sans-serif';
-    ctx.fillText('No data yet for this exercise', 10, height / 2);
+    ctx.fillText('No data yet', 10, height / 2);
     return;
   }
 
-  const maxVal = Math.max(1, ...dates.flatMap(d => state.profiles.map(p => byDate[d][p.id] || 0)));
-  const padding = { left: 36, right: 10, top: 10, bottom: 20 };
+  const maxVal = Math.max(1, ...points.map(p => p.value));
+  const padding = { left: 40, right: 10, top: 10, bottom: 20 };
   const plotW = width - padding.left - padding.right;
   const plotH = height - padding.top - padding.bottom;
-  const step = dates.length > 1 ? plotW / (dates.length - 1) : 0;
+  const step = points.length > 1 ? plotW / (points.length - 1) : 0;
 
-  // axes
   ctx.strokeStyle = '#334155';
   ctx.beginPath();
   ctx.moveTo(padding.left, padding.top);
@@ -391,118 +610,124 @@ function drawChart(workouts) {
   ctx.lineTo(width - padding.right, height - padding.bottom);
   ctx.stroke();
 
-  state.profiles.forEach(profile => {
-    ctx.strokeStyle = profile.color;
-    ctx.lineWidth = 2;
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = padding.left + i * step;
+    const y = height - padding.bottom - (p.value / maxVal) * plotH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  points.forEach((p, i) => {
+    const x = padding.left + i * step;
+    const y = height - padding.bottom - (p.value / maxVal) * plotH;
+    ctx.fillStyle = '#22c55e';
     ctx.beginPath();
-    dates.forEach((d, i) => {
-      const val = byDate[d][profile.id] || 0;
-      const x = padding.left + i * step;
-      const y = height - padding.bottom - (val / maxVal) * plotH;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-    dates.forEach((d, i) => {
-      const val = byDate[d][profile.id] || 0;
-      const x = padding.left + i * step;
-      const y = height - padding.bottom - (val / maxVal) * plotH;
-      ctx.fillStyle = profile.color;
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
   });
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '10px sans-serif';
-  if (dates.length <= 8) {
-    dates.forEach((d, i) => {
-      const x = padding.left + i * step;
-      ctx.fillText(d.slice(5), x - 12, height - 4);
-    });
-  } else {
-    ctx.fillText(dates[0].slice(5), padding.left - 10, height - 4);
-    ctx.fillText(dates[dates.length - 1].slice(5), width - padding.right - 30, height - 4);
+  ctx.fillText(`est 1RM ${Math.round(points[0].value)}`, padding.left - 6, 10);
+  if (points.length > 1) {
+    ctx.fillText(points[0].date.slice(5), padding.left - 10, height - 4);
+    ctx.fillText(points[points.length - 1].date.slice(5), width - padding.right - 30, height - 4);
   }
 }
 
-// ---------- Bets tab ----------
-async function loadBets() {
-  const bets = await api('/bets');
-  const container = document.getElementById('bets-list');
-  if (bets.length === 0) {
-    container.innerHTML = `<div class="empty-state">No bets yet. Start one below!</div>`;
+// ---------- Routine editor ----------
+function openRoutineEditor(routine) {
+  state.routineEditing = routine
+    ? JSON.parse(JSON.stringify(routine))
+    : { name: '', exercises: [] };
+  document.getElementById('routine-modal-title').textContent = routine ? 'Edit Routine' : 'New Routine';
+  document.getElementById('routine-name-input').value = state.routineEditing.name;
+  renderRoutineEditor();
+  document.getElementById('routine-modal').classList.remove('hidden');
+}
+
+function closeRoutineEditor() {
+  document.getElementById('routine-modal').classList.add('hidden');
+  state.routineEditing = null;
+}
+
+function renderRoutineEditor() {
+  const container = document.getElementById('routine-exercises');
+  if (state.routineEditing.exercises.length === 0) {
+    container.innerHTML = `<div class="empty-state">Add exercises to this routine.</div>`;
     return;
   }
-  container.innerHTML = bets.map(bet => {
-    const topVal = Math.max(...bet.standings.map(s => s.value));
+  container.innerHTML = state.routineEditing.exercises.map((ex, exIdx) => {
+    const rows = ex.sets.map((set, setIdx) => `
+      <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
+        <span class="set-num">${setIdx + 1}</span>
+        <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="lbs" value="${set.weight}" />
+        <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
+        <button class="set-remove" title="remove set">✕</button>
+      </div>
+    `).join('');
     return `
-      <div class="bet-card">
-        <div class="bet-title">${escapeHtml(bet.title)}</div>
-        <div class="bet-meta">${escapeHtml(bet.exercise || 'All exercises')} · ${metricLabel(bet.metric)} · ${bet.startDate} → ${bet.endDate}</div>
-        <div class="bet-standings">
-          ${bet.standings.map(s => `
-            <div class="bet-standing ${s.value === topVal && topVal > 0 ? 'win' : ''}">
-              <div class="n" style="color:${profileColor(s.profileId)}">${escapeHtml(s.name)}</div>
-              <div class="v">${Math.round(s.value).toLocaleString()}</div>
-            </div>
-          `).join('')}
+      <div class="exercise-block">
+        <div class="exercise-block-header">
+          <strong>${escapeHtml(ex.name)}</strong>
+          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
-        ${bet.stake ? `<div class="bet-stake">Stake: ${escapeHtml(bet.stake)}</div>` : ''}
-        <span class="bet-status ${bet.status}">
-          ${bet.status === 'active' ? 'In progress' : (bet.winner === 'tie' ? "It's a tie!" : bet.winner ? `${profileName(bet.winner)} won!` : 'No winner')}
-        </span>
-        <button class="del-btn" data-id="${bet.id}" title="delete" style="float:right">🗑</button>
+        <div class="set-table target">
+          <div class="set-table-head"><span>Set</span><span>Weight</span><span>Reps</span><span></span></div>
+          ${rows}
+        </div>
+        <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
       </div>
     `;
   }).join('');
-  container.querySelectorAll('.del-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('Delete this bet?')) return;
-      await api(`/bets/${btn.dataset.id}`, { method: 'DELETE' });
-      loadBets();
+
+  container.querySelectorAll('.remove-exercise-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.routineEditing.exercises.splice(Number(btn.dataset.ex), 1);
+      renderRoutineEditor();
+    });
+  });
+  container.querySelectorAll('.add-set-row-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ex = state.routineEditing.exercises[Number(btn.dataset.ex)];
+      const lastSet = ex.sets[ex.sets.length - 1];
+      ex.sets.push({ reps: lastSet ? lastSet.reps : 8, weight: lastSet ? lastSet.weight : 0 });
+      renderRoutineEditor();
+    });
+  });
+  container.querySelectorAll('.set-row-table').forEach(row => {
+    const exIdx = Number(row.dataset.ex);
+    const setIdx = Number(row.dataset.set);
+    const set = state.routineEditing.exercises[exIdx].sets[setIdx];
+    row.querySelector('.set-weight-input').addEventListener('input', e => { set.weight = Number(e.target.value) || 0; });
+    row.querySelector('.set-reps-input').addEventListener('input', e => { set.reps = Number(e.target.value) || 0; });
+    row.querySelector('.set-remove').addEventListener('click', () => {
+      state.routineEditing.exercises[exIdx].sets.splice(setIdx, 1);
+      renderRoutineEditor();
     });
   });
 }
 
-function metricLabel(metric) {
-  return {
-    volume: 'Total volume',
-    reps: 'Total reps',
-    sets: 'Total sets',
-    max_weight: 'Heaviest set',
-    workouts: 'Workouts logged'
-  }[metric] || metric;
-}
-
-async function submitBet(e) {
-  e.preventDefault();
-  const title = document.getElementById('bet-title').value.trim();
-  const exercise = document.getElementById('bet-exercise').value.trim();
-  const metric = document.getElementById('bet-metric').value;
-  const startDate = document.getElementById('bet-start').value;
-  const endDate = document.getElementById('bet-end').value;
-  const stake = document.getElementById('bet-stake').value.trim();
-
-  if (endDate < startDate) {
-    alert('End date must be after start date');
+async function saveRoutine() {
+  const name = document.getElementById('routine-name-input').value.trim();
+  if (!name) {
+    alert('Give this routine a name.');
     return;
   }
-
-  try {
-    await api('/bets', {
-      method: 'POST',
-      body: JSON.stringify({ title, exercise: exercise || null, metric, startDate, endDate, stake })
-    });
-    document.getElementById('bet-form').reset();
-    document.getElementById('bet-start').value = todayStr();
-    const endDefault = new Date();
-    endDefault.setDate(endDefault.getDate() + 7);
-    document.getElementById('bet-end').value = endDefault.toISOString().slice(0, 10);
-    loadBets();
-  } catch (err) {
-    alert(err.message);
+  if (state.routineEditing.exercises.length === 0) {
+    alert('Add at least one exercise.');
+    return;
   }
+  const payload = { name, exercises: state.routineEditing.exercises };
+  if (state.routineEditing.id) {
+    await api(`/routines/${state.routineEditing.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+  } else {
+    await api('/routines', { method: 'POST', body: JSON.stringify(payload) });
+  }
+  closeRoutineEditor();
+  loadRoutines();
 }
 
 init();

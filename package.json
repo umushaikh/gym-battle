@@ -1,7 +1,7 @@
 {
   "name": "gym-battle",
   "version": "1.0.0",
-  "description": "Shared gym progress tracker and betting app for two people",
+  "description": "Personal workout tracker: log lifts, track PRs, and build routines",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
