@@ -81,6 +81,16 @@
 
   </main>
 
+  <div id="rest-bar" class="rest-bar hidden">
+    <button id="rest-minus" class="rest-adjust">−15s</button>
+    <div class="rest-main">
+      <div id="rest-time" class="rest-time">0:00</div>
+      <div class="rest-label">Rest</div>
+    </div>
+    <button id="rest-plus" class="rest-adjust">+15s</button>
+    <button id="rest-skip" class="rest-skip">Skip</button>
+  </div>
+
   <nav class="tabbar">
     <button class="tabbar-btn active" data-tab="workout"><span class="icon">🏋️</span>Workout</button>
     <button class="tabbar-btn" data-tab="history"><span class="icon">📅</span>History</button>
@@ -156,6 +166,11 @@
       <p class="hint-text">Your workouts are saved only on this device. If you clear your
       browser data or move to a new phone, they go with it unless you keep a backup.</p>
       <div id="data-summary" class="pr-cell"></div>
+
+      <h3 class="subheading">Rest timer</h3>
+      <label>Seconds of rest after ticking off a set (0 turns it off)
+        <input type="number" id="rest-default-input" min="0" max="900" step="15" />
+      </label>
 
       <h3 class="subheading">Back up</h3>
       <button id="export-btn" class="primary-btn">Download backup file</button>

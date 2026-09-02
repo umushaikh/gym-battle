@@ -7,6 +7,8 @@ const state = {
   pickerTarget: null,     // 'workout' | 'routine'
   routineEditing: null,   // { id?, name, exercises: [{exerciseId, name, sets:[{reps,weight}]}] }
   timerInterval: null,
+  rest: null,              // { endsAt } while resting between sets
+  restInterval: null,
   categoryFilter: ''
 };
 
@@ -138,8 +140,128 @@ async function copyShareText() {
   btn.textContent = copied ? 'Copied!' : 'Press and hold the text to copy';
 }
 
+// ---------- Rest timer ----------
+const REST_KEY = 'ironLogRestTimer';
+const REST_DEFAULT_KEY = 'ironLogRestSeconds';
+
+function getDefaultRest() {
+  // Number(null) is 0, so an absent key must be handled before converting,
+  // or a fresh install would silently start with the timer switched off.
+  const raw = localStorage.getItem(REST_DEFAULT_KEY);
+  if (raw === null) return 90;
+  const stored = Number(raw);
+  return Number.isFinite(stored) && stored >= 0 ? stored : 90;
+}
+
+// Web Audio needs to be opened during a real tap, so this is called from the
+// same gesture that starts the timer rather than when it finishes.
+let audioCtx = null;
+function primeBeep() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch {
+    audioCtx = null;
+  }
+}
+
+function beep() {
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.6);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.6);
+  } catch {
+    // a missing beep should never break the timer
+  }
+}
+
+function startRest(seconds) {
+  const secs = seconds == null ? getDefaultRest() : seconds;
+  if (!secs || secs <= 0) return;
+  // Stored as an end time, so a throttled or suspended tab still shows the
+  // right number when it wakes up instead of drifting behind.
+  state.rest = { endsAt: Date.now() + secs * 1000 };
+  localStorage.setItem(REST_KEY, JSON.stringify(state.rest));
+  primeBeep();
+  renderRest();
+  if (!state.restInterval) state.restInterval = setInterval(tickRest, 250);
+}
+
+function stopRest() {
+  state.rest = null;
+  localStorage.removeItem(REST_KEY);
+  if (state.restInterval) {
+    clearInterval(state.restInterval);
+    state.restInterval = null;
+  }
+  document.getElementById('rest-bar').classList.add('hidden');
+}
+
+function adjustRest(deltaSeconds) {
+  if (!state.rest) return;
+  state.rest.endsAt += deltaSeconds * 1000;
+  if (state.rest.endsAt <= Date.now()) {
+    stopRest();
+    return;
+  }
+  localStorage.setItem(REST_KEY, JSON.stringify(state.rest));
+  renderRest();
+}
+
+function tickRest() {
+  if (!state.rest) {
+    stopRest();
+    return;
+  }
+  if (state.rest.endsAt - Date.now() <= 0) {
+    beep();
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    stopRest();
+    return;
+  }
+  renderRest();
+}
+
+function renderRest() {
+  const bar = document.getElementById('rest-bar');
+  if (!state.rest) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const total = Math.ceil(Math.max(0, state.rest.endsAt - Date.now()) / 1000);
+  document.getElementById('rest-time').textContent =
+    `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  bar.classList.remove('hidden');
+}
+
+function restoreRest() {
+  const raw = localStorage.getItem(REST_KEY);
+  if (!raw) return;
+  try {
+    const rest = JSON.parse(raw);
+    if (rest && rest.endsAt > Date.now()) {
+      state.rest = rest;
+      state.restInterval = setInterval(tickRest, 250);
+      renderRest();
+    } else {
+      localStorage.removeItem(REST_KEY);
+    }
+  } catch {
+    localStorage.removeItem(REST_KEY);
+  }
+}
+
 // ---------- Backup & restore ----------
 async function openDataModal() {
+  document.getElementById('rest-default-input').value = getDefaultRest();
   const data = await db.exportData();
   document.getElementById('data-summary').innerHTML = `
     <div class="pr-row"><span>Workouts saved</span><strong>${data.workouts.length}</strong></div>
@@ -228,6 +350,7 @@ async function init() {
   state.exercises = await db.getExercises();
   restoreActiveWorkout();
   bindEvents();
+  restoreRest();
   renderWorkoutTab();
 }
 
@@ -269,6 +392,15 @@ function bindEvents() {
   document.getElementById('close-data-btn').addEventListener('click', () => {
     document.getElementById('data-modal').classList.add('hidden');
   });
+  document.getElementById('rest-minus').addEventListener('click', () => adjustRest(-15));
+  document.getElementById('rest-plus').addEventListener('click', () => adjustRest(15));
+  document.getElementById('rest-skip').addEventListener('click', stopRest);
+  document.getElementById('rest-default-input').addEventListener('change', e => {
+    const secs = Math.max(0, Math.min(900, Number(e.target.value) || 0));
+    localStorage.setItem(REST_DEFAULT_KEY, String(secs));
+    e.target.value = secs;
+  });
+
   document.getElementById('export-btn').addEventListener('click', exportBackupFile);
   document.getElementById('export-text-btn').addEventListener('click', exportBackupText);
   document.getElementById('import-file').addEventListener('change', handleImportFile);
@@ -398,6 +530,7 @@ function startFromRoutine(routine) {
 
 function cancelWorkout() {
   if (!confirm('Discard this workout? This cannot be undone.')) return;
+  stopRest();
   state.activeWorkout = null;
   persistActiveWorkout();
   renderWorkoutTab();
@@ -524,6 +657,9 @@ function bindActiveExerciseEvents() {
     row.querySelector('.set-check').addEventListener('click', () => {
       set.completed = !set.completed;
       persistActiveWorkout();
+      // Ticking a set off is the moment rest starts; unticking is a
+      // correction, so it shouldn't kick off a timer.
+      if (set.completed) startRest();
       renderActiveWorkout();
     });
     row.querySelector('.set-remove').addEventListener('click', () => {
@@ -554,6 +690,7 @@ async function finishWorkout() {
   // lookup is stale. Without this, logging a second workout without
   // reloading shows no previous sets for the exercises just trained.
   state.lastCache = {};
+  stopRest();
   state.activeWorkout = null;
   persistActiveWorkout();
   renderWorkoutTab();
