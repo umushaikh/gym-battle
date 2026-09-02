@@ -1083,12 +1083,16 @@ async function saveExerciseEdit() {
       'Cancel: change this exercise anyway, keeping all history together.'
     );
     if (separate) {
-      const created = await db.addExercise({ name, category, equipment });
+      // Two exercises with the same name are indistinguishable in a workout,
+      // where only the name is shown, so qualify the new one by its equipment.
+      const clashes = state.exercises.some(e => e.name.toLowerCase() === name.toLowerCase());
+      const newName = clashes && equipment ? `${name} (${equipment})` : name;
+      const created = await db.addExercise({ name: newName, category, equipment });
       state.exercises.push(created);
       closeExerciseEditor();
       closeDetail();
       renderLibraryTab();
-      alert(`Added "${name}" as a separate exercise. "${original.name}" keeps its ${sessions} session${sessions !== 1 ? 's' : ''}.`);
+      alert(`Added "${newName}" as a separate exercise, tracked on its own.\n\n"${original.name}" keeps its ${sessions} session${sessions !== 1 ? 's' : ''}.`);
       return;
     }
   }
