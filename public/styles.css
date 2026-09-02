@@ -345,6 +345,12 @@ label { display: block; margin-bottom: 12px; }
 .pick-mark { color: var(--accent); font-weight: 800; width: 14px; text-align: center; }
 .picker-actions { display: flex; gap: 10px; align-items: stretch; margin-top: 4px; }
 .picker-actions .primary-btn { flex: 1; margin-top: 0; }
+.picker-actions .primary-btn:disabled {
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: default;
+}
+.picker-actions .primary-btn:disabled:active { transform: none; }
 .picker-actions .secondary-btn { margin: 0; white-space: nowrap; border-style: solid; color: var(--text); }
 .hint-text { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0 0 12px; }
 #import-file { padding: 10px; font-size: 0.85rem; }

@@ -885,6 +885,7 @@ function renderPickerList() {
 
   container.querySelectorAll('.picker-item').forEach(btn => {
     btn.addEventListener('click', () => {
+      document.getElementById('picker-search').blur();
       const id = btn.dataset.id;
       const at = state.pickerSelection.indexOf(id);
       if (at === -1) state.pickerSelection.push(id);
@@ -905,9 +906,14 @@ function renderPickerList() {
 
 function renderPickerAddButton() {
   const count = state.pickerSelection.length;
-  document.getElementById('picker-actions').classList.toggle('hidden', count === 0);
-  document.getElementById('picker-add-btn').textContent =
-    count === 1 ? 'Add 1 exercise' : `Add ${count} exercises`;
+  const addBtn = document.getElementById('picker-add-btn');
+  // The row stays on screen even with nothing selected: hiding it entirely
+  // left no visible way to finish adding, which reads as the option missing.
+  document.getElementById('picker-actions').classList.remove('hidden');
+  addBtn.disabled = count === 0;
+  addBtn.textContent = count === 0
+    ? 'Tap exercises to add'
+    : (count === 1 ? 'Add 1 exercise' : `Add ${count} exercises`);
   // Supersetting needs at least two exercises to link together.
   document.getElementById('picker-superset-btn').classList.toggle('hidden', count < 2);
 }
