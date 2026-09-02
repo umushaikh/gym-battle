@@ -35,20 +35,6 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// Inline SVG icons (Lucide, MIT) instead of emoji, which render
-// inconsistently across phones and look out of place in a UI.
-function icon(paths, cls) {
-  return `<svg class="${cls || 'ic'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
-    + `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-}
-const ICON = {
-  trash: icon('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>'),
-  pencil: icon('<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>'),
-  check: icon('<path d="M20 6 9 17l-5-5"/>'),
-  close: icon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
-  chevron: icon('<path d="m9 18 6-6-6-6"/>')
-};
-
 // escapeHtml escapes & < > but not quotes, which is fine for text nodes and
 // unsafe inside an attribute. Use this for anything interpolated into one.
 function escapeAttr(str) {
@@ -155,15 +141,6 @@ async function copyShareText() {
 }
 
 // ---------- Rest timer ----------
-const WARMUP_HINT_KEY = 'ironLogWarmupHintSeen';
-
-// The hint explains a control that isn't self-evident, but it's noise once
-// you've used it, so show it under the first exercise only and retire it for
-// good the first time a warm-up is marked.
-function warmupHintNeeded() {
-  return localStorage.getItem(WARMUP_HINT_KEY) !== '1';
-}
-
 const REST_KEY = 'ironLogRestTimer';
 const REST_DEFAULT_KEY = 'ironLogRestSeconds';
 
@@ -507,8 +484,8 @@ async function loadRoutines() {
       </div>
       <div class="routine-actions">
         <button class="secondary-btn small start-routine-btn" data-id="${r.id}">Start</button>
-        <button class="icon-btn edit-routine-btn" data-id="${r.id}" title="edit">${ICON.pencil}</button>
-        <button class="icon-btn del-btn" data-id="${r.id}" title="delete">${ICON.trash}</button>
+        <button class="icon-btn edit-routine-btn" data-id="${r.id}" title="edit">✎</button>
+        <button class="icon-btn del-btn" data-id="${r.id}" title="delete">🗑</button>
       </div>
     </div>
   `).join('');
@@ -604,8 +581,8 @@ function renderActiveWorkout() {
           <span class="set-prev">${prev}</span>
           <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="kg" value="${set.weight}" />
           <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
-          <button class="set-check ${set.completed ? 'done' : ''}" title="mark done">${ICON.check}</button>
-          <button class="set-remove" title="remove set">${ICON.close}</button>
+          <button class="set-check ${set.completed ? 'done' : ''}" title="mark done">✓</button>
+          <button class="set-remove" title="remove set">✕</button>
         </div>
       `;
     }).join('');
@@ -614,13 +591,13 @@ function renderActiveWorkout() {
       <div class="exercise-block" data-ex="${exIdx}">
         <div class="exercise-block-header">
           <strong>${escapeHtml(ex.name)}</strong>
-          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">${ICON.trash}</button>
+          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
         <div class="set-table">
           <div class="set-table-head"><span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span></div>
           ${rows}
         </div>
-        ${exIdx === 0 && warmupHintNeeded() ? `<div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>` : ''}
+        <div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>
         <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
         <input type="text" class="exercise-note-input" data-ex="${exIdx}"
                placeholder="Add a note for ${escapeAttr(ex.name)}..." value="${escapeAttr(ex.notes || '')}" />
@@ -665,7 +642,6 @@ function bindActiveExerciseEvents() {
     const set = state.activeWorkout.exercises[exIdx].sets[setIdx];
 
     row.querySelector('.set-num').addEventListener('click', () => {
-      localStorage.setItem(WARMUP_HINT_KEY, '1');
       set.warmup = !set.warmup;
       persistActiveWorkout();
       renderActiveWorkout();
@@ -860,7 +836,7 @@ async function loadHistory() {
         <div class="entry-title">${escapeHtml(w.name)}</div>
         <div class="entry-sub">${w.date} · ${formatDuration(w.endedAt - w.startedAt)} · ${w.exercises.length} exercises · vol ${Math.round(workoutVolume(w)).toLocaleString()}</div>
       </div>
-      <button class="icon-btn del-btn" data-id="${w.id}" title="delete">${ICON.trash}</button>
+      <button class="icon-btn del-btn" data-id="${w.id}" title="delete">🗑</button>
     </div>
   `).join('');
 
@@ -1063,68 +1039,37 @@ function drawExerciseChart(sessions) {
   const plotH = height - padding.top - padding.bottom;
   const step = points.length > 1 ? plotW / (points.length - 1) : 0;
 
-  const yFor = value => height - padding.bottom - (value / maxVal) * plotH;
-  // A lone session would otherwise sit jammed against the axis.
-  const xFor = points.length > 1
-    ? i => padding.left + i * step
-    : () => padding.left + plotW / 2;
-
-  // horizontal guides with values, so the line can actually be read
-  ctx.font = '10px -apple-system, system-ui, sans-serif';
-  ctx.textBaseline = 'middle';
-  for (let i = 0; i <= 2; i++) {
-    const value = (maxVal / 2) * i;
-    const y = yFor(value);
-    ctx.strokeStyle = 'rgba(148,163,184,0.14)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding.left, y);
-    ctx.lineTo(width - padding.right, y);
-    ctx.stroke();
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'right';
-    ctx.fillText(Math.round(value), padding.left - 6, y);
-  }
-
-  // soft fill under the line
-  const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-  gradient.addColorStop(0, 'rgba(34,197,94,0.28)');
-  gradient.addColorStop(1, 'rgba(34,197,94,0)');
-  ctx.fillStyle = gradient;
+  ctx.strokeStyle = '#334155';
   ctx.beginPath();
-  ctx.moveTo(xFor(0), height - padding.bottom);
-  points.forEach((p, i) => ctx.lineTo(xFor(i), yFor(p.value)));
-  ctx.lineTo(xFor(points.length - 1), height - padding.bottom);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = '#22c55e';
-  ctx.lineWidth = 2.5;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  points.forEach((p, i) => {
-    if (i === 0) ctx.moveTo(xFor(i), yFor(p.value));
-    else ctx.lineTo(xFor(i), yFor(p.value));
-  });
+  ctx.moveTo(padding.left, padding.top);
+  ctx.lineTo(padding.left, height - padding.bottom);
+  ctx.lineTo(width - padding.right, height - padding.bottom);
   ctx.stroke();
 
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
   points.forEach((p, i) => {
-    ctx.fillStyle = '#0b1120';
+    const x = padding.left + i * step;
+    const y = height - padding.bottom - (p.value / maxVal) * plotH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  points.forEach((p, i) => {
+    const x = padding.left + i * step;
+    const y = height - padding.bottom - (p.value / maxVal) * plotH;
+    ctx.fillStyle = '#22c55e';
     ctx.beginPath();
-    ctx.arc(xFor(i), yFor(p.value), 4, 0, Math.PI * 2);
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#22c55e';
-    ctx.lineWidth = 2;
-    ctx.stroke();
   });
 
   ctx.fillStyle = '#94a3b8';
-  ctx.textBaseline = 'alphabetic';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(`est 1RM ${Math.round(points[0].value)}`, padding.left - 6, 10);
   if (points.length > 1) {
-    ctx.textAlign = 'left';
-    ctx.fillText(points[0].date.slice(5), padding.left, height - 5);
-    ctx.textAlign = 'right';
-    ctx.fillText(points[points.length - 1].date.slice(5), width - padding.right, height - 5);
+    ctx.fillText(points[0].date.slice(5), padding.left - 10, height - 4);
+    ctx.fillText(points[points.length - 1].date.slice(5), width - padding.right - 30, height - 4);
   }
 }
 
@@ -1156,14 +1101,14 @@ function renderRoutineEditor() {
         <span class="set-num">${setIdx + 1}</span>
         <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="kg" value="${set.weight}" />
         <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
-        <button class="set-remove" title="remove set">${ICON.close}</button>
+        <button class="set-remove" title="remove set">✕</button>
       </div>
     `).join('');
     return `
       <div class="exercise-block">
         <div class="exercise-block-header">
           <strong>${escapeHtml(ex.name)}</strong>
-          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">${ICON.trash}</button>
+          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
         <div class="set-table target">
           <div class="set-table-head"><span>Set</span><span>Weight</span><span>Reps</span><span></span></div>
