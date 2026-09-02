@@ -1,0 +1,40 @@
+name: Deploy to GitHub Pages
+
+# Publishes public/ as the site. The app is a static PWA, so serving it
+# over https is what enables offline mode, home-screen install, and the
+# native share sheet. No workout data is involved: that lives only in
+# the browser's local storage on the device.
+
+on:
+  push:
+    branches:
+      - master
+      - claude/gym-progress-tracker-nov6ww
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
