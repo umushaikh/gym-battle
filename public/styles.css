@@ -146,6 +146,13 @@ form input, form select {
 .row { display: flex; gap: 12px; }
 .row label { flex: 1; }
 
+.hint {
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin: -6px 0 12px;
+  min-height: 1em;
+}
+
 .primary-btn {
   width: 100%;
   padding: 12px;
@@ -232,6 +239,17 @@ form input, form select {
 .summary-cell.leader { box-shadow: inset 0 0 0 2px var(--accent); }
 
 canvas { width: 100%; }
+
+.subheading { margin: 16px 0 10px; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.pr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.pr-cell { background: var(--surface-2); border-radius: 10px; padding: 12px; }
+.pr-cell .name { font-weight: 700; margin-bottom: 6px; }
+.pr-row { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--muted); padding: 2px 0; }
+.pr-row strong { color: var(--text); }
 
 .bet-card {
   background: var(--surface-2);

@@ -148,6 +148,40 @@ function bindEvents() {
   document.getElementById('workout-form').addEventListener('submit', submitWorkout);
   document.getElementById('bet-form').addEventListener('submit', submitBet);
   document.getElementById('progress-exercise').addEventListener('change', loadProgress);
+
+  let hintDebounce;
+  document.getElementById('exercise-input').addEventListener('input', () => {
+    clearTimeout(hintDebounce);
+    hintDebounce = setTimeout(updateLastTimeHint, 300);
+  });
+  document.getElementById('exercise-input').addEventListener('change', updateLastTimeHint);
+}
+
+// ---------- Last-time hint ----------
+function formatSets(sets) {
+  const groups = [];
+  sets.forEach(s => {
+    const last = groups[groups.length - 1];
+    if (last && last.reps === s.reps && last.weight === s.weight) {
+      last.count++;
+    } else {
+      groups.push({ reps: s.reps, weight: s.weight, count: 1 });
+    }
+  });
+  return groups.map(g => `${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}lbs` : ''}`).join(', ');
+}
+
+async function updateLastTimeHint() {
+  const exercise = document.getElementById('exercise-input').value.trim();
+  const hintEl = document.getElementById('last-time-hint');
+  if (!exercise || !state.currentProfileId) {
+    hintEl.textContent = '';
+    return;
+  }
+  const workouts = await api(`/workouts?profileId=${encodeURIComponent(state.currentProfileId)}&exercise=${encodeURIComponent(exercise)}`);
+  hintEl.textContent = workouts.length
+    ? `Last time (${workouts[0].date}): ${formatSets(workouts[0].sets)}`
+    : '';
 }
 
 // ---------- Log tab ----------
@@ -261,6 +295,60 @@ async function loadProgress() {
   `).join('');
 
   drawChart(workouts);
+  renderExerciseDetail(exercise, workouts);
+}
+
+function e1rm(reps, weight) {
+  if (!weight || !reps) return 0;
+  return weight * (1 + reps / 30);
+}
+
+function renderExerciseDetail(exercise, workouts) {
+  const container = document.getElementById('exercise-detail');
+  if (!exercise) {
+    container.innerHTML = `<div class="empty-state">Pick a specific exercise above to see personal records and history.</div>`;
+    return;
+  }
+
+  const byProfile = {};
+  state.profiles.forEach(p => byProfile[p.id] = []);
+  workouts.forEach(w => { (byProfile[w.profileId] = byProfile[w.profileId] || []).push(w); });
+
+  const prHtml = state.profiles.map(p => {
+    const ws = byProfile[p.id] || [];
+    let bestWeight = 0, bestE1rm = 0;
+    ws.forEach(w => w.sets.forEach(s => {
+      if (s.weight > bestWeight) bestWeight = s.weight;
+      bestE1rm = Math.max(bestE1rm, e1rm(s.reps, s.weight));
+    }));
+    return `
+      <div class="pr-cell">
+        <div class="name" style="color:${p.color}">${escapeHtml(p.name)}</div>
+        <div class="pr-row"><span>Best set</span><strong>${bestWeight ? bestWeight + 'lbs' : '—'}</strong></div>
+        <div class="pr-row"><span>Est. 1RM</span><strong>${bestE1rm ? Math.round(bestE1rm) + 'lbs' : '—'}</strong></div>
+        <div class="pr-row"><span>Sessions</span><strong>${ws.length}</strong></div>
+      </div>
+    `;
+  }).join('');
+
+  const historyHtml = workouts.slice(0, 15).map(w => {
+    const vol = w.sets.reduce((s, set) => s + set.reps * set.weight, 0);
+    return `
+      <div class="entry">
+        <div class="entry-main">
+          <div class="entry-title">${w.date}</div>
+          <div class="entry-sub">${formatSets(w.sets)} · vol ${Math.round(vol).toLocaleString()}</div>
+        </div>
+        <span class="entry-badge" style="background:${profileColor(w.profileId)}">${escapeHtml(profileName(w.profileId))}</span>
+      </div>
+    `;
+  }).join('') || `<div class="empty-state">No sessions logged for this exercise yet.</div>`;
+
+  container.innerHTML = `
+    <div class="pr-grid">${prHtml}</div>
+    <h3 class="subheading">History</h3>
+    <div class="list">${historyHtml}</div>
+  `;
 }
 
 function drawChart(workouts) {

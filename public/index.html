@@ -42,6 +42,7 @@
             <input list="exercise-list" id="exercise-input" placeholder="e.g. Bench Press" required />
             <datalist id="exercise-list"></datalist>
           </label>
+          <div id="last-time-hint" class="hint"></div>
           <label>Date
             <input type="date" id="date-input" required />
           </label>
@@ -71,6 +72,11 @@
         </label>
         <div id="progress-summary" class="summary-grid"></div>
         <canvas id="progress-chart" height="180"></canvas>
+      </div>
+
+      <div class="card">
+        <h2>Personal records &amp; history</h2>
+        <div id="exercise-detail"></div>
       </div>
     </section>
 
