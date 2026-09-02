@@ -11,6 +11,17 @@ const state = {
 };
 
 if ('serviceWorker' in navigator) {
+  // Whether a worker was already in charge when this page loaded. If one was,
+  // a later handover means a new version has been deployed, so reload once to
+  // show it. Guarded so a first-ever install doesn't reload, and so this can
+  // never loop.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

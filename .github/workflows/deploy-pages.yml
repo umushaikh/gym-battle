@@ -34,6 +34,16 @@ jobs:
         with:
           enablement: true
 
+      # Gives every deploy a distinct service worker and cache name, so
+      # browsers actually pick up new versions instead of serving the old
+      # cached app indefinitely.
+      - name: Stamp the service worker with this commit
+        run: |
+          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/" public/sw.js
+          grep -q "iron-log-\${BUILD_ID}" public/sw.js && grep -q "${GITHUB_SHA}" public/sw.js \
+            && echo "stamped BUILD_ID=${GITHUB_SHA}" \
+            || { echo "service worker was not stamped"; exit 1; }
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
