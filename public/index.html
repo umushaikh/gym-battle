@@ -92,9 +92,26 @@
   <div class="modal-sheet">
     <div class="modal-header">
       <h2>Add Exercise</h2>
-      <button id="close-picker-btn" class="link-btn">Close</button>
+      <div class="modal-header-actions">
+        <button id="picker-new-btn" class="link-btn">+ New exercise</button>
+        <button id="close-picker-btn" class="link-btn">Close</button>
+      </div>
     </div>
     <input id="picker-search" class="search-input" placeholder="Search exercises" />
+    <div id="picker-new-form" class="card hidden">
+      <label>Name
+        <input id="picker-new-name" placeholder="e.g. Cable Y-Raise" />
+      </label>
+      <div class="row">
+        <label>Category
+          <input id="picker-new-category" placeholder="e.g. Shoulders" />
+        </label>
+        <label>Equipment
+          <input id="picker-new-equipment" placeholder="e.g. Cable" />
+        </label>
+      </div>
+      <button id="picker-new-save" class="primary-btn">Create &amp; add</button>
+    </div>
     <div id="picker-list" class="list scrollable"></div>
   </div>
 </div>

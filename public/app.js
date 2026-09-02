@@ -235,6 +235,8 @@ function bindEvents() {
 
   document.getElementById('close-picker-btn').addEventListener('click', closePicker);
   document.getElementById('picker-search').addEventListener('input', renderPickerList);
+  document.getElementById('picker-new-btn').addEventListener('click', togglePickerNewForm);
+  document.getElementById('picker-new-save').addEventListener('click', createExerciseFromPicker);
 
   document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
 
@@ -517,6 +519,10 @@ async function finishWorkout() {
     notes: state.activeWorkout.notes || ''
   };
   await db.addWorkout(payload);
+  // This workout is now the most recent one, so every cached "previous"
+  // lookup is stale. Without this, logging a second workout without
+  // reloading shows no previous sets for the exercises just trained.
+  state.lastCache = {};
   state.activeWorkout = null;
   persistActiveWorkout();
   renderWorkoutTab();
@@ -527,12 +533,66 @@ async function finishWorkout() {
 function openPicker(target) {
   state.pickerTarget = target;
   document.getElementById('picker-search').value = '';
+  hidePickerNewForm();
   renderPickerList();
   document.getElementById('exercise-picker').classList.remove('hidden');
 }
 
 function closePicker() {
   document.getElementById('exercise-picker').classList.add('hidden');
+  hidePickerNewForm();
+}
+
+function hidePickerNewForm() {
+  document.getElementById('picker-new-form').classList.add('hidden');
+  document.getElementById('picker-list').classList.remove('hidden');
+  document.getElementById('picker-new-btn').textContent = '+ New exercise';
+  document.getElementById('picker-new-name').value = '';
+  document.getElementById('picker-new-category').value = '';
+  document.getElementById('picker-new-equipment').value = '';
+}
+
+function togglePickerNewForm() {
+  const form = document.getElementById('picker-new-form');
+  if (!form.classList.contains('hidden')) {
+    hidePickerNewForm();
+    return;
+  }
+  // Carry whatever was typed in the search box over as the name, since that
+  // is usually the exercise the search just failed to find.
+  document.getElementById('picker-new-name').value = document.getElementById('picker-search').value.trim();
+  document.getElementById('picker-new-save').textContent =
+    state.pickerTarget === 'routine' ? 'Create & add to routine' : 'Create & add to workout';
+  form.classList.remove('hidden');
+  // The sheet is only so tall; hide the browse list while creating so the
+  // form's save button can't get clipped off the bottom.
+  document.getElementById('picker-list').classList.add('hidden');
+  document.getElementById('picker-new-btn').textContent = 'Cancel';
+  document.getElementById('picker-new-name').focus();
+}
+
+async function createExerciseFromPicker() {
+  const name = document.getElementById('picker-new-name').value.trim();
+  if (!name) {
+    alert('Give the exercise a name.');
+    return;
+  }
+  // Reuse an existing exercise rather than creating a duplicate, so history
+  // for that lift stays on one entry.
+  const existing = state.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    hidePickerNewForm();
+    addExerciseToTarget(existing);
+    return;
+  }
+  const exercise = await db.addExercise({
+    name,
+    category: document.getElementById('picker-new-category').value.trim(),
+    equipment: document.getElementById('picker-new-equipment').value.trim()
+  });
+  state.exercises.push(exercise);
+  hidePickerNewForm();
+  addExerciseToTarget(exercise);
 }
 
 function renderPickerList() {
@@ -542,7 +602,7 @@ function renderPickerList() {
 
   const exactMatch = state.exercises.some(e => e.name.toLowerCase() === query);
   const createRow = query && !exactMatch
-    ? `<button class="entry entry-clickable" id="picker-create-btn">+ Add "${escapeHtml(query)}" as new exercise</button>`
+    ? `<button class="entry entry-clickable" id="picker-create-btn">+ Create "${escapeHtml(query)}" and add it</button>`
     : '';
 
   container.innerHTML = createRow + matches.map(e => `
@@ -622,6 +682,7 @@ async function loadHistory() {
       e.stopPropagation();
       if (!confirm('Delete this workout?')) return;
       await db.deleteWorkout(btn.dataset.id);
+      state.lastCache = {};
       loadHistory();
     });
   });
