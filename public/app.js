@@ -74,15 +74,43 @@ async function shareWorkout(workout) {
   if (navigator.share) {
     try {
       await navigator.share({ title: workout.name, text });
+      return;
     } catch {
       // user dismissed the share sheet
+      return;
     }
-  } else if (navigator.clipboard) {
-    await navigator.clipboard.writeText(text);
-    alert('Workout copied to clipboard!');
-  } else {
-    alert(text);
   }
+  // No native share sheet (e.g. served over plain http): show the text so it
+  // can be copied out by hand.
+  document.getElementById('share-text').value = text;
+  document.getElementById('copy-share-btn').textContent = 'Copy to clipboard';
+  document.getElementById('share-modal').classList.remove('hidden');
+}
+
+async function copyShareText() {
+  const area = document.getElementById('share-text');
+  const btn = document.getElementById('copy-share-btn');
+  let copied = false;
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(area.value);
+      copied = true;
+    }
+  } catch {
+    copied = false;
+  }
+  if (!copied) {
+    area.removeAttribute('readonly');
+    area.focus();
+    area.setSelectionRange(0, area.value.length);
+    try {
+      copied = document.execCommand('copy');
+    } catch {
+      copied = false;
+    }
+    area.setAttribute('readonly', '');
+  }
+  btn.textContent = copied ? 'Copied!' : 'Press and hold the text to copy';
 }
 
 // ---------- Init ----------
@@ -119,6 +147,11 @@ function bindEvents() {
   document.getElementById('picker-search').addEventListener('input', renderPickerList);
 
   document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
+
+  document.getElementById('close-share-btn').addEventListener('click', () => {
+    document.getElementById('share-modal').classList.add('hidden');
+  });
+  document.getElementById('copy-share-btn').addEventListener('click', copyShareText);
 
   document.getElementById('new-routine-btn').addEventListener('click', () => openRoutineEditor(null));
   document.getElementById('close-routine-btn').addEventListener('click', closeRoutineEditor);

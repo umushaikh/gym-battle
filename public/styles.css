@@ -257,6 +257,20 @@ label { display: block; margin-bottom: 12px; }
   z-index: 50;
 }
 #exercise-picker { z-index: 60; }
+#share-modal { z-index: 70; }
+.share-text {
+  width: 100%;
+  min-height: 200px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+}
 .modal-sheet {
   background: var(--surface);
   width: 100%;
