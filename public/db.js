@@ -75,6 +75,7 @@ const db = {
       .map(e => ({
         exerciseId: e.exerciseId,
         name: e.name,
+        notes: e.notes || '',
         sets: (e.sets || [])
           .filter(s => Number(s.reps) > 0 || Number(s.weight) > 0)
           .map(s => ({ reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, warmup: !!s.warmup }))

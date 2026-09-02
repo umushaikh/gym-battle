@@ -209,7 +209,7 @@ label { display: block; margin-bottom: 12px; }
 
 .set-table-head, .set-row-table {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 1fr 32px 28px;
+  grid-template-columns: 38px 1fr 1fr 1fr 32px 26px;
   gap: 6px;
   align-items: center;
   margin-bottom: 6px;
@@ -219,17 +219,44 @@ label { display: block; margin-bottom: 12px; }
   grid-template-columns: 28px 1fr 1fr 28px;
 }
 .set-table-head { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+/* Looks like a button and is big enough to hit on a phone, because tapping
+   it is the only way to mark a warm-up set. */
 .set-num {
   color: var(--muted);
   font-size: 0.85rem;
+  font-weight: 600;
   text-align: center;
-  background: none;
-  border: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
   cursor: pointer;
+  min-height: 36px;
   padding: 4px 0;
-  border-radius: 6px;
+  border-radius: 8px;
 }
-.set-num.warmup { color: var(--accent-2); font-weight: 700; background: rgba(59,130,246,0.15); }
+.set-num.warmup {
+  color: #93c5fd;
+  border-color: var(--accent-2);
+  background: rgba(59,130,246,0.2);
+}
+.warmup-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  margin: 2px 0 10px;
+}
+.exercise-note-input {
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+.exercise-note-input:focus {
+  background: var(--surface-2);
+  border-style: solid;
+  outline: none;
+}
+.exercise-note { font-style: italic; margin-top: 4px; }
 .set-prev { color: var(--muted); font-size: 0.8rem; text-align: center; }
 .set-row-table input { margin-top: 0; padding: 8px; text-align: center; }
 .set-check {

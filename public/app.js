@@ -22,6 +22,12 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// escapeHtml escapes & < > but not quotes, which is fine for text nodes and
+// unsafe inside an attribute. Use this for anything interpolated into one.
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -63,7 +69,10 @@ function buildShareText(workout) {
     `${formatDuration(workout.endedAt - workout.startedAt)} · Volume ${Math.round(workoutVolume(workout)).toLocaleString()}lbs`,
     ''
   ];
-  workout.exercises.forEach(e => lines.push(`${e.name}: ${formatSets(e.sets)}`));
+  workout.exercises.forEach(e => {
+    lines.push(`${e.name}: ${formatSets(e.sets)}`);
+    if (e.notes) lines.push(`  (${e.notes})`);
+  });
   if (workout.notes) lines.push('', `Notes: ${workout.notes}`);
   lines.push('', 'Logged with Iron Log');
   return lines.join('\n');
@@ -367,6 +376,7 @@ function startFromRoutine(routine) {
     exercises: routine.exercises.map(e => ({
       exerciseId: e.exerciseId,
       name: e.name,
+      notes: '',
       sets: e.sets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '', warmup: false, completed: false }))
     }))
   };
@@ -423,7 +433,7 @@ function renderActiveWorkout() {
       const label = set.warmup ? 'W' : String(++workingCount);
       return `
         <div class="set-row-table" data-ex="${exIdx}" data-set="${setIdx}">
-          <button class="set-num ${set.warmup ? 'warmup' : ''}" title="tap to mark as warmup">${label}</button>
+          <button class="set-num ${set.warmup ? 'warmup' : ''}" title="${set.warmup ? 'Warm-up set. Tap for a working set' : 'Tap to mark as a warm-up set'}">${label}</button>
           <span class="set-prev">${prev}</span>
           <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="lbs" value="${set.weight}" />
           <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
@@ -443,7 +453,10 @@ function renderActiveWorkout() {
           <div class="set-table-head"><span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span></div>
           ${rows}
         </div>
+        <div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>
         <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
+        <input type="text" class="exercise-note-input" data-ex="${exIdx}"
+               placeholder="Add a note for ${escapeAttr(ex.name)}..." value="${escapeAttr(ex.notes || '')}" />
       </div>
     `;
   }).join('');
@@ -469,6 +482,13 @@ function bindActiveExerciseEvents() {
       ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', warmup: false, completed: false });
       persistActiveWorkout();
       renderActiveWorkout();
+    });
+  });
+
+  container.querySelectorAll('.exercise-note-input').forEach(input => {
+    input.addEventListener('input', e => {
+      state.activeWorkout.exercises[Number(input.dataset.ex)].notes = e.target.value;
+      persistActiveWorkout();
     });
   });
 
@@ -638,6 +658,7 @@ async function addExerciseToTarget(exercise) {
     state.activeWorkout.exercises.push({
       exerciseId: exercise.id,
       name: exercise.name,
+      notes: '',
       sets: [{ reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', warmup: false, completed: false }]
     });
     persistActiveWorkout();
@@ -699,6 +720,7 @@ function openWorkoutDetail(workout) {
       <div class="exercise-block">
         <div class="exercise-block-header"><strong>${escapeHtml(e.name)}</strong></div>
         <div class="entry-sub">${formatSets(e.sets)}</div>
+        ${e.notes ? `<div class="entry-sub exercise-note">“${escapeHtml(e.notes)}”</div>` : ''}
       </div>
     `).join('')}
     ${workout.notes ? `<div class="entry-sub" style="margin-top:10px;"><strong>Notes:</strong> ${escapeHtml(workout.notes)}</div>` : ''}
@@ -721,7 +743,7 @@ function renderCategoryFilters() {
   const categories = ['', ...new Set(state.exercises.map(e => e.category))];
   const container = document.getElementById('category-filters');
   container.innerHTML = categories.map(c => `
-    <button class="chip ${state.categoryFilter === c ? 'active' : ''}" data-cat="${escapeHtml(c)}">${c ? escapeHtml(c) : 'All'}</button>
+    <button class="chip ${state.categoryFilter === c ? 'active' : ''}" data-cat="${escapeAttr(c)}">${c ? escapeHtml(c) : 'All'}</button>
   `).join('');
   container.querySelectorAll('.chip').forEach(btn => {
     btn.addEventListener('click', () => {
