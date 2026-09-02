@@ -26,6 +26,9 @@ body {
 .app { max-width: 640px; margin: 0 auto; padding-bottom: 76px; min-height: 100vh; }
 
 .topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 16px 20px;
   position: sticky;
   top: 0;
@@ -257,7 +260,10 @@ label { display: block; margin-bottom: 12px; }
   z-index: 50;
 }
 #exercise-picker { z-index: 60; }
+#data-modal { z-index: 65; }
 #share-modal { z-index: 70; }
+.hint-text { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0 0 12px; }
+#import-file { padding: 10px; font-size: 0.85rem; }
 .share-text {
   width: 100%;
   min-height: 200px;

@@ -17,6 +17,7 @@
 <div id="app" class="app">
   <header class="topbar">
     <div class="brand">💪 Iron Log</div>
+    <button id="data-btn" class="icon-btn" title="Backup &amp; restore">⚙</button>
   </header>
 
   <main class="content">
@@ -128,10 +129,32 @@
   </div>
 </div>
 
+<div id="data-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>Backup &amp; Restore</h2>
+      <button id="close-data-btn" class="link-btn">Close</button>
+    </div>
+    <div class="scrollable">
+      <p class="hint-text">Your workouts are saved only on this device. If you clear your
+      browser data or move to a new phone, they go with it unless you keep a backup.</p>
+      <div id="data-summary" class="pr-cell"></div>
+
+      <h3 class="subheading">Back up</h3>
+      <button id="export-btn" class="primary-btn">Download backup file</button>
+      <button id="export-text-btn" class="secondary-btn full">Or copy backup as text</button>
+
+      <h3 class="subheading">Restore</h3>
+      <p class="hint-text">Replaces everything currently in the app with a backup file.</p>
+      <input type="file" id="import-file" accept="application/json,.json" />
+    </div>
+  </div>
+</div>
+
 <div id="share-modal" class="modal hidden">
   <div class="modal-sheet">
     <div class="modal-header">
-      <h2>Share Workout</h2>
+      <h2 id="share-modal-title">Share Workout</h2>
       <button id="close-share-btn" class="link-btn">Close</button>
     </div>
     <textarea id="share-text" class="share-text" readonly></textarea>

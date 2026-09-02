@@ -107,6 +107,32 @@ const db = {
     return true;
   },
 
+  async exportData() {
+    const store = loadDb();
+    return {
+      app: 'iron-log',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      exercises: store.exercises,
+      workouts: store.workouts,
+      routines: store.routines
+    };
+  },
+
+  // Replaces everything. The ids inside a backup are self-consistent, so
+  // restoring wholesale keeps workout history pointing at the right exercises.
+  async importData(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('That file is not an Iron Log backup.');
+    }
+    const { exercises, workouts, routines } = payload;
+    if (!Array.isArray(exercises) || !Array.isArray(workouts) || !Array.isArray(routines)) {
+      throw new Error('That file is missing workout data, so it is not an Iron Log backup.');
+    }
+    saveDb({ exercises, workouts, routines });
+    return { exercises: exercises.length, workouts: workouts.length, routines: routines.length };
+  },
+
   async getRoutines() {
     return loadDb().routines;
   },

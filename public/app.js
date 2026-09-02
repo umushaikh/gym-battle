@@ -82,6 +82,11 @@ async function shareWorkout(workout) {
   }
   // No native share sheet (e.g. served over plain http): show the text so it
   // can be copied out by hand.
+  openCopySheet('Share Workout', text);
+}
+
+function openCopySheet(title, text) {
+  document.getElementById('share-modal-title').textContent = title;
   document.getElementById('share-text').value = text;
   document.getElementById('copy-share-btn').textContent = 'Copy to clipboard';
   document.getElementById('share-modal').classList.remove('hidden');
@@ -111,6 +116,91 @@ async function copyShareText() {
     area.setAttribute('readonly', '');
   }
   btn.textContent = copied ? 'Copied!' : 'Press and hold the text to copy';
+}
+
+// ---------- Backup & restore ----------
+async function openDataModal() {
+  const data = await db.exportData();
+  document.getElementById('data-summary').innerHTML = `
+    <div class="pr-row"><span>Workouts saved</span><strong>${data.workouts.length}</strong></div>
+    <div class="pr-row"><span>Routines</span><strong>${data.routines.length}</strong></div>
+    <div class="pr-row"><span>Exercises</span><strong>${data.exercises.length}</strong></div>
+  `;
+  document.getElementById('data-modal').classList.remove('hidden');
+}
+
+async function exportBackupFile() {
+  const data = await db.exportData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `iron-log-backup-${todayStr()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportBackupText() {
+  const data = await db.exportData();
+  openCopySheet('Backup', JSON.stringify(data));
+}
+
+async function handleImportFile(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  if (state.activeWorkout) {
+    alert('Finish or cancel the workout you have in progress before restoring a backup.');
+    input.value = '';
+    return;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch {
+    alert('That file could not be read. Pick the .json backup file this app saved.');
+    input.value = '';
+    return;
+  }
+
+  // Check the file is a backup before showing the "this replaces everything"
+  // prompt, so a wrong file is turned away instead of looking like an empty
+  // restore about to wipe the app.
+  const looksLikeBackup = payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Array.isArray(payload.workouts) && Array.isArray(payload.routines) && Array.isArray(payload.exercises);
+  if (!looksLikeBackup) {
+    alert('That file is not an Iron Log backup. Pick the .json file the Download backup button saved.');
+    input.value = '';
+    return;
+  }
+
+  const workoutCount = payload.workouts.length;
+  const routineCount = payload.routines.length;
+  const ok = confirm(
+    `Restore ${workoutCount} workout${workoutCount !== 1 ? 's' : ''} and ${routineCount} routine${routineCount !== 1 ? 's' : ''}?\n\n` +
+    'This replaces everything currently in the app.'
+  );
+  if (!ok) {
+    input.value = '';
+    return;
+  }
+
+  try {
+    const restored = await db.importData(payload);
+    state.exercises = await db.getExercises();
+    state.lastCache = {};
+    input.value = '';
+    document.getElementById('data-modal').classList.add('hidden');
+    renderWorkoutTab();
+    alert(`Restored ${restored.workouts} workouts and ${restored.routines} routines.`);
+  } catch (err) {
+    input.value = '';
+    alert(err.message);
+  }
 }
 
 // ---------- Init ----------
@@ -152,6 +242,14 @@ function bindEvents() {
     document.getElementById('share-modal').classList.add('hidden');
   });
   document.getElementById('copy-share-btn').addEventListener('click', copyShareText);
+
+  document.getElementById('data-btn').addEventListener('click', openDataModal);
+  document.getElementById('close-data-btn').addEventListener('click', () => {
+    document.getElementById('data-modal').classList.add('hidden');
+  });
+  document.getElementById('export-btn').addEventListener('click', exportBackupFile);
+  document.getElementById('export-text-btn').addEventListener('click', exportBackupText);
+  document.getElementById('import-file').addEventListener('change', handleImportFile);
 
   document.getElementById('new-routine-btn').addEventListener('click', () => openRoutineEditor(null));
   document.getElementById('close-routine-btn').addEventListener('click', closeRoutineEditor);
