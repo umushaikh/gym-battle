@@ -590,6 +590,7 @@ function renderActiveWorkout() {
     return `
       <div class="exercise-block" data-ex="${exIdx}">
         <div class="exercise-block-header">
+          <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
           <strong>${escapeHtml(ex.name)}</strong>
           <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
@@ -606,6 +607,53 @@ function renderActiveWorkout() {
   }).join('');
 
   bindActiveExerciseEvents();
+}
+
+// Reordering by dragging the whole card would fight with scrolling the page,
+// so only the grip handle starts a drag. The blocks shuffle under the finger
+// as it moves; on release the new DOM order is read back and applied to the
+// underlying list. Each block still carries its original index in data-ex,
+// which is what makes that read-back possible.
+function enableExerciseReorder(container, commitOrder) {
+  container.querySelectorAll('.drag-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', event => {
+      const block = handle.closest('.exercise-block');
+      if (!block) return;
+      event.preventDefault();
+      block.classList.add('dragging');
+
+      const onMove = moveEvent => {
+        const others = [...container.querySelectorAll('.exercise-block')].filter(b => b !== block);
+        const landedBefore = others.find(other => {
+          const rect = other.getBoundingClientRect();
+          return moveEvent.clientY < rect.top + rect.height / 2;
+        });
+        if (landedBefore) {
+          if (landedBefore !== block.nextElementSibling) container.insertBefore(block, landedBefore);
+        } else if (container.lastElementChild !== block) {
+          container.appendChild(block);
+        }
+      };
+
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+        block.classList.remove('dragging');
+        const order = [...container.querySelectorAll('.exercise-block')]
+          .map(el => Number(el.dataset.ex));
+        commitOrder(order);
+      };
+
+      // Listeners go on the document rather than the handle: the handle rides
+      // inside the block being moved, and moving a node drops any pointer
+      // capture on it, which would end the drag after the first swap and lose
+      // the drop entirely.
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    });
+  });
 }
 
 function bindActiveExerciseEvents() {
@@ -667,6 +715,14 @@ function bindActiveExerciseEvents() {
       persistActiveWorkout();
       renderActiveWorkout();
     });
+  });
+
+  enableExerciseReorder(container, order => {
+    if (order.every((from, to) => from === to)) return;   // a tap, not a drag
+    const previous = state.activeWorkout.exercises;
+    state.activeWorkout.exercises = order.map(from => previous[from]);
+    persistActiveWorkout();
+    renderActiveWorkout();
   });
 }
 
@@ -1105,8 +1161,9 @@ function renderRoutineEditor() {
       </div>
     `).join('');
     return `
-      <div class="exercise-block">
+      <div class="exercise-block" data-ex="${exIdx}">
         <div class="exercise-block-header">
+          <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
           <strong>${escapeHtml(ex.name)}</strong>
           <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
@@ -1143,6 +1200,13 @@ function renderRoutineEditor() {
       state.routineEditing.exercises[exIdx].sets.splice(setIdx, 1);
       renderRoutineEditor();
     });
+  });
+
+  enableExerciseReorder(container, order => {
+    if (order.every((from, to) => from === to)) return;
+    const previous = state.routineEditing.exercises;
+    state.routineEditing.exercises = order.map(from => previous[from]);
+    renderRoutineEditor();
   });
 }
 

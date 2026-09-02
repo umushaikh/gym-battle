@@ -209,6 +209,26 @@ label { display: block; margin-bottom: 12px; }
   margin-bottom: 12px;
 }
 .exercise-block-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.exercise-block-header strong { flex: 1; }
+/* touch-action:none keeps a drag on the handle from scrolling the page;
+   everywhere else on the card still scrolls normally. */
+.drag-handle {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: grab;
+  padding: 6px 10px 6px 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.exercise-block.dragging {
+  box-shadow: inset 0 0 0 2px var(--accent-2);
+  opacity: 0.9;
+}
+.exercise-block.dragging .drag-handle { cursor: grabbing; color: var(--accent-2); }
 
 .set-table-head, .set-row-table {
   display: grid;
