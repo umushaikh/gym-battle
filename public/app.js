@@ -172,7 +172,7 @@ function buildShareText(workout) {
     if (e.notes) lines.push(`  (${e.notes})`);
   });
   if (workout.notes) lines.push('', `Notes: ${workout.notes}`);
-  lines.push('', 'Logged with Iron Log');
+  lines.push('', 'Logged with Coach Umer');
   return lines.join('\n');
 }
 
@@ -422,7 +422,7 @@ async function handleImportFile(event) {
   const looksLikeBackup = payload && typeof payload === 'object' && !Array.isArray(payload)
     && Array.isArray(payload.workouts) && Array.isArray(payload.routines) && Array.isArray(payload.exercises);
   if (!looksLikeBackup) {
-    alert('That file is not an Iron Log backup. Pick the .json file the Download backup button saved.');
+    alert('That file is not a Coach Umer backup. Pick the .json file the Download backup button saved.');
     input.value = '';
     return;
   }

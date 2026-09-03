@@ -183,11 +183,11 @@ const db = {
   // restoring wholesale keeps workout history pointing at the right exercises.
   async importData(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      throw new Error('That file is not an Iron Log backup.');
+      throw new Error('That file is not a Coach Umer backup.');
     }
     const { exercises, workouts, routines } = payload;
     if (!Array.isArray(exercises) || !Array.isArray(workouts) || !Array.isArray(routines)) {
-      throw new Error('That file is missing workout data, so it is not an Iron Log backup.');
+      throw new Error('That file is missing workout data, so it is not a Coach Umer backup.');
     }
     saveDb({ exercises, workouts, routines });
     return { exercises: exercises.length, workouts: workouts.length, routines: routines.length };
