@@ -99,17 +99,33 @@ function e1rm(reps, weight) {
   return weight * (1 + reps / 30);
 }
 
-function formatSets(sets) {
+function isCardioExercise(exerciseId) {
+  const ex = state.exercises.find(e => e.id === exerciseId);
+  return !!(ex && ex.isCardio);
+}
+
+function formatSets(sets, isCardio) {
   const groups = [];
   sets.forEach(s => {
-    const warmup = !!s.warmup;
     const last = groups[groups.length - 1];
+    if (isCardio) {
+      if (last && last.km === s.km && last.calories === s.calories) {
+        last.count++;
+      } else {
+        groups.push({ km: s.km, calories: s.calories, count: 1 });
+      }
+      return;
+    }
+    const warmup = !!s.warmup;
     if (last && last.reps === s.reps && last.weight === s.weight && last.warmup === warmup) {
       last.count++;
     } else {
       groups.push({ reps: s.reps, weight: s.weight, warmup, count: 1 });
     }
   });
+  if (isCardio) {
+    return groups.map(g => `${g.count > 1 ? `${g.count}× ` : ''}${g.km || 0}km${g.calories ? ` · ${g.calories} cal` : ''}`).join(', ');
+  }
   return groups.map(g => `${g.warmup ? 'Warmup ' : ''}${g.count}×${g.reps}${g.weight ? ` @ ${g.weight}kg` : ''}`).join(', ');
 }
 
@@ -137,9 +153,12 @@ function computeSupersets(exercises) {
   return groupOf;
 }
 
+// Cardio sets carry km/calories instead of weight/reps, so they naturally
+// contribute 0 here (Number(undefined) is NaN, guarded back to 0) rather
+// than needing to be filtered out exercise-by-exercise.
 function workoutVolume(workout) {
   return workout.exercises.reduce((sum, e) =>
-    sum + e.sets.filter(set => !set.warmup).reduce((s, set) => s + set.reps * set.weight, 0), 0);
+    sum + e.sets.filter(set => !set.warmup).reduce((s, set) => s + (Number(set.reps) || 0) * (Number(set.weight) || 0), 0), 0);
 }
 
 function buildShareText(workout) {
@@ -149,7 +168,7 @@ function buildShareText(workout) {
     ''
   ];
   workout.exercises.forEach(e => {
-    lines.push(`${e.name}: ${formatSets(e.sets)}`);
+    lines.push(`${e.name}: ${formatSets(e.sets, isCardioExercise(e.exerciseId))}`);
     if (e.notes) lines.push(`  (${e.notes})`);
   });
   if (workout.notes) lines.push('', `Notes: ${workout.notes}`);
@@ -618,13 +637,18 @@ function startFromRoutine(routine) {
     pausedAt: null,
     pausedMs: 0,
     notes: '',
-    exercises: routine.exercises.map(e => ({
-      exerciseId: e.exerciseId,
-      name: e.name,
-      notes: '',
-      linkedToPrev: !!e.linkedToPrev,
-      sets: e.sets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '', warmup: false, completed: false }))
-    }))
+    exercises: routine.exercises.map(e => {
+      const cardio = isCardioExercise(e.exerciseId);
+      return {
+        exerciseId: e.exerciseId,
+        name: e.name,
+        notes: '',
+        linkedToPrev: !!e.linkedToPrev,
+        sets: e.sets.map(s => cardio
+          ? { km: s.km ?? '', calories: s.calories ?? '', completed: false }
+          : { reps: s.reps ?? '', weight: s.weight ?? '', warmup: false, completed: false })
+      };
+    })
   };
   state.activeWorkout.exercises.forEach(e => warmLastCache(e.exerciseId).then(renderActiveWorkout));
   persistActiveWorkout();
@@ -708,8 +732,23 @@ function renderActiveWorkout() {
   container.innerHTML = state.activeWorkout.exercises.map((ex, exIdx) => {
     const ss = ssGroups[exIdx];
     const last = state.lastCache[ex.exerciseId];
+    const cardio = isCardioExercise(ex.exerciseId);
     let workingCount = 0;
     const rows = ex.sets.map((set, setIdx) => {
+      if (cardio) {
+        const prevSet = last && last.sets[setIdx];
+        const prev = prevSet ? `${prevSet.km || 0}km · ${prevSet.calories || 0}c` : '—';
+        return `
+          <div class="set-row-table" data-ex="${exIdx}" data-set="${setIdx}">
+            <span class="set-num">${setIdx + 1}</span>
+            <span class="set-prev">${prev}</span>
+            <input type="number" min="0" step="0.01" class="set-km-input" placeholder="km" value="${set.km}" />
+            <input type="number" min="0" class="set-cal-input" placeholder="cal" value="${set.calories}" />
+            <button class="set-check ${set.completed ? 'done' : ''}" title="mark done">✓</button>
+            <button class="set-remove" title="remove set">✕</button>
+          </div>
+        `;
+      }
       const prev = last && last.sets[setIdx]
         ? `${last.sets[setIdx].weight || 0}×${last.sets[setIdx].reps || 0}`
         : '—';
@@ -737,10 +776,12 @@ function renderActiveWorkout() {
         </div>
         ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
         <div class="set-table">
-          <div class="set-table-head"><span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span></div>
+          <div class="set-table-head">${cardio
+            ? '<span>Set</span><span>Previous</span><span>Km</span><span>Cal</span><span></span><span></span>'
+            : '<span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span>'}</div>
           ${rows}
         </div>
-        ${exIdx === 0 && warmupHintNeeded() ? `<div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>` : ''}
+        ${!cardio && exIdx === 0 && warmupHintNeeded() ? `<div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>` : ''}
         <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
         <input type="text" class="exercise-note-input" data-ex="${exIdx}"
                placeholder="Add a note for ${escapeAttr(ex.name)}..." value="${escapeAttr(ex.notes || '')}" />
@@ -830,7 +871,11 @@ function bindActiveExerciseEvents() {
     btn.addEventListener('click', () => {
       const ex = state.activeWorkout.exercises[Number(btn.dataset.ex)];
       const lastSet = ex.sets[ex.sets.length - 1];
-      ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', warmup: false, completed: false });
+      if (isCardioExercise(ex.exerciseId)) {
+        ex.sets.push({ km: lastSet ? lastSet.km : '', calories: lastSet ? lastSet.calories : '', completed: false });
+      } else {
+        ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', warmup: false, completed: false });
+      }
       persistActiveWorkout();
       renderActiveWorkout();
     });
@@ -846,24 +891,38 @@ function bindActiveExerciseEvents() {
   container.querySelectorAll('.set-row-table').forEach(row => {
     const exIdx = Number(row.dataset.ex);
     const setIdx = Number(row.dataset.set);
-    const set = state.activeWorkout.exercises[exIdx].sets[setIdx];
+    const exObj = state.activeWorkout.exercises[exIdx];
+    const set = exObj.sets[setIdx];
 
-    row.querySelector('.set-num').addEventListener('click', () => {
-      localStorage.setItem(WARMUP_HINT_KEY, '1');
-      set.warmup = !set.warmup;
-      persistActiveWorkout();
-      renderActiveWorkout();
-    });
-    selectContentsOnFocus(row.querySelector('.set-weight-input'));
-    selectContentsOnFocus(row.querySelector('.set-reps-input'));
-    row.querySelector('.set-weight-input').addEventListener('input', e => {
-      set.weight = e.target.value;
-      persistActiveWorkout();
-    });
-    row.querySelector('.set-reps-input').addEventListener('input', e => {
-      set.reps = e.target.value;
-      persistActiveWorkout();
-    });
+    if (isCardioExercise(exObj.exerciseId)) {
+      selectContentsOnFocus(row.querySelector('.set-km-input'));
+      selectContentsOnFocus(row.querySelector('.set-cal-input'));
+      row.querySelector('.set-km-input').addEventListener('input', e => {
+        set.km = e.target.value;
+        persistActiveWorkout();
+      });
+      row.querySelector('.set-cal-input').addEventListener('input', e => {
+        set.calories = e.target.value;
+        persistActiveWorkout();
+      });
+    } else {
+      row.querySelector('.set-num').addEventListener('click', () => {
+        localStorage.setItem(WARMUP_HINT_KEY, '1');
+        set.warmup = !set.warmup;
+        persistActiveWorkout();
+        renderActiveWorkout();
+      });
+      selectContentsOnFocus(row.querySelector('.set-weight-input'));
+      selectContentsOnFocus(row.querySelector('.set-reps-input'));
+      row.querySelector('.set-weight-input').addEventListener('input', e => {
+        set.weight = e.target.value;
+        persistActiveWorkout();
+      });
+      row.querySelector('.set-reps-input').addEventListener('input', e => {
+        set.reps = e.target.value;
+        persistActiveWorkout();
+      });
+    }
     row.querySelector('.set-check').addEventListener('click', () => {
       set.completed = !set.completed;
       persistActiveWorkout();
@@ -892,7 +951,7 @@ function bindActiveExerciseEvents() {
 
 async function finishWorkout() {
   const hasLoggedSet = state.activeWorkout.exercises.some(e =>
-    e.sets.some(s => Number(s.reps) > 0 || Number(s.weight) > 0));
+    e.sets.some(s => Number(s.reps) > 0 || Number(s.weight) > 0 || Number(s.km) > 0 || Number(s.calories) > 0));
   if (!hasLoggedSet) {
     alert('Log at least one set before finishing.');
     return;
@@ -1092,11 +1151,14 @@ async function addExerciseToTarget(exercise, opts) {
     }
     await warmLastCache(exercise.id);
     const last = state.lastCache[exercise.id];
+    const initialSet = exercise.isCardio
+      ? { km: last ? last.sets[0].km : '', calories: last ? last.sets[0].calories : '', completed: false }
+      : { reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', warmup: false, completed: false };
     state.activeWorkout.exercises.push({
       exerciseId: exercise.id,
       name: exercise.name,
       notes: '',
-      sets: [{ reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', warmup: false, completed: false }]
+      sets: [initialSet]
     });
     persistActiveWorkout();
     renderActiveWorkout();
@@ -1104,7 +1166,7 @@ async function addExerciseToTarget(exercise, opts) {
     state.routineEditing.exercises.push({
       exerciseId: exercise.id,
       name: exercise.name,
-      sets: [{ reps: 8, weight: 0 }, { reps: 8, weight: 0 }, { reps: 8, weight: 0 }]
+      sets: exercise.isCardio ? [{ km: 0, calories: 0 }] : [{ reps: 8, weight: 0 }, { reps: 8, weight: 0 }, { reps: 8, weight: 0 }]
     });
     renderRoutineEditor();
   }
@@ -1159,7 +1221,7 @@ function openWorkoutDetail(workout) {
       <div class="exercise-block ${detailGroups[i] !== null ? 'in-superset' : ''}" data-ss="${detailGroups[i] === null ? '' : detailGroups[i] % 4}">
         ${detailGroups[i] !== null ? '<div class="ss-tag">Superset</div>' : ''}
         <div class="exercise-block-header"><strong>${escapeHtml(e.name)}</strong></div>
-        <div class="entry-sub">${formatSets(e.sets)}</div>
+        <div class="entry-sub">${formatSets(e.sets, isCardioExercise(e.exerciseId))}</div>
         ${e.notes ? `<div class="entry-sub exercise-note">“${escapeHtml(e.notes)}”</div>` : ''}
       </div>
     `).join('')}
@@ -1180,14 +1242,20 @@ async function saveWorkoutAsTemplate(workout) {
     return;
   }
   // Warm-ups are specific to the day rather than part of the plan, so the
-  // template keeps the working sets.
+  // template keeps the working sets. Cardio has no warm-up concept, so every
+  // logged set carries over as-is.
   const exercises = workout.exercises
-    .map(e => ({
-      exerciseId: e.exerciseId,
-      name: e.name,
-      linkedToPrev: !!e.linkedToPrev,
-      sets: e.sets.filter(s => !s.warmup).map(s => ({ reps: s.reps, weight: s.weight }))
-    }))
+    .map(e => {
+      const cardio = isCardioExercise(e.exerciseId);
+      return {
+        exerciseId: e.exerciseId,
+        name: e.name,
+        linkedToPrev: !!e.linkedToPrev,
+        sets: cardio
+          ? e.sets.map(s => ({ km: s.km || 0, calories: s.calories || 0 }))
+          : e.sets.filter(s => !s.warmup).map(s => ({ reps: s.reps, weight: s.weight }))
+      };
+    })
     .filter(e => e.sets.length > 0);
   if (exercises.length === 0) {
     alert('This workout has no working sets to save.');
@@ -1381,6 +1449,11 @@ async function openExerciseDetail(exercise) {
   editBtn.classList.remove('hidden');
   editBtn.onclick = () => openExerciseEditor(exercise);
 
+  if (exercise.isCardio) {
+    renderCardioExerciseDetail(exercise, sessions);
+    return;
+  }
+
   let bestWeight = 0, bestE1rm = 0;
   sessions.forEach(s => s.sets.forEach(set => {
     if (set.warmup) return;
@@ -1416,7 +1489,52 @@ async function openExerciseDetail(exercise) {
   drawExerciseChart(sessions);
 }
 
-function drawExerciseChart(sessions) {
+// Cardio has no weight/reps or 1RM to speak of - distance and calories are
+// the real-world numbers that matter, so its detail view and chart swap in
+// those instead of reusing the strength PR layout.
+function renderCardioExerciseDetail(exercise, sessions) {
+  let bestKm = 0, totalKm = 0, totalCalories = 0;
+  sessions.forEach(s => s.sets.forEach(set => {
+    const km = Number(set.km) || 0;
+    const calories = Number(set.calories) || 0;
+    totalKm += km;
+    totalCalories += calories;
+    if (km > bestKm) bestKm = km;
+  }));
+
+  const historyHtml = sessions.length
+    ? sessions.map(s => `
+        <div class="entry">
+          <div class="entry-main">
+            <div class="entry-title">${s.date}</div>
+            <div class="entry-sub">${formatSets(s.sets, true)}</div>
+          </div>
+        </div>
+      `).join('')
+    : `<div class="empty-state">No sessions logged for this exercise yet.</div>`;
+
+  document.getElementById('detail-body').innerHTML = `
+    <div class="entry-sub" style="margin-bottom:12px;">${escapeHtml(exercise.category)} · ${escapeHtml(exercise.equipment)}</div>
+    <div class="pr-grid single">
+      <div class="pr-cell">
+        <div class="pr-row"><span>Longest session</span><strong>${bestKm ? bestKm + 'km' : '—'}</strong></div>
+        <div class="pr-row"><span>Total distance</span><strong>${totalKm ? `${Math.round(totalKm * 10) / 10}km` : '—'}</strong></div>
+        <div class="pr-row"><span>Total calories</span><strong>${totalCalories ? Math.round(totalCalories).toLocaleString() : '—'}</strong></div>
+        <div class="pr-row"><span>Sessions</span><strong>${sessions.length}</strong></div>
+      </div>
+    </div>
+    <canvas id="exercise-chart" height="160"></canvas>
+    <h3 class="subheading">History</h3>
+    <div class="list">${historyHtml}</div>
+  `;
+  document.getElementById('detail-modal').classList.remove('hidden');
+  drawExerciseChart(sessions, {
+    label: 'km',
+    valueFn: s => s.sets.reduce((sum, set) => sum + (Number(set.km) || 0), 0)
+  });
+}
+
+function drawExerciseChart(sessions, opts) {
   const canvas = document.getElementById('exercise-chart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -1428,9 +1546,11 @@ function drawExerciseChart(sessions) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
+  const label = (opts && opts.label) || 'est 1RM';
+  const valueFn = (opts && opts.valueFn) || (s => Math.max(0, ...s.sets.filter(set => !set.warmup).map(set => e1rm(set.reps, set.weight))));
   const points = [...sessions].reverse().map(s => ({
     date: s.date,
-    value: Math.max(0, ...s.sets.filter(set => !set.warmup).map(set => e1rm(set.reps, set.weight)))
+    value: valueFn(s)
   }));
   if (points.length === 0) {
     ctx.fillStyle = '#94a3b8';
@@ -1472,7 +1592,7 @@ function drawExerciseChart(sessions) {
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '10px sans-serif';
-  ctx.fillText(`est 1RM ${Math.round(points[0].value)}`, padding.left - 6, 10);
+  ctx.fillText(`${label} ${Math.round(points[0].value)}`, padding.left - 6, 10);
   if (points.length > 1) {
     ctx.fillText(points[0].date.slice(5), padding.left - 10, height - 4);
     ctx.fillText(points[points.length - 1].date.slice(5), width - padding.right - 30, height - 4);
@@ -1498,10 +1618,22 @@ function weekVolumeStats(workouts) {
   return { thisWeek, lastWeek, volumeChangePct, thisWeekCount, avgPerWeek };
 }
 
-// Reduces a history of sessions (oldest first) down to one "best set" per
-// session - the one with the highest estimated 1RM that day, ignoring
-// warm-ups the same way every other record in the app does.
-function exerciseSessionSummaries(sessions) {
+// Reduces a history of sessions (oldest first) down to one "best" value per
+// session. For strength that's the set with the highest estimated 1RM,
+// ignoring warm-ups the same way every other record in the app does; for
+// cardio there's no 1RM to speak of, so it's the day's total distance and
+// calories instead.
+function exerciseSessionSummaries(sessions, isCardio) {
+  if (isCardio) {
+    return sessions.map(s => {
+      let km = 0, calories = 0;
+      s.sets.forEach(set => {
+        km += Number(set.km) || 0;
+        calories += Number(set.calories) || 0;
+      });
+      return (km > 0 || calories > 0) ? { date: s.date, best: { km, calories } } : null;
+    }).filter(Boolean);
+  }
   return sessions.map(s => {
     let best = null;
     let volume = 0;
@@ -1520,9 +1652,24 @@ function exerciseSessionSummaries(sessions) {
 // calls for repeating it rather than pushing further.
 const REP_CEILING = 12;
 
-function recommendProgression(summaries) {
-  if (summaries.length === 0) return { text: 'No sets logged yet.', tag: 'none' };
+function recommendProgression(summaries, isCardio) {
+  if (summaries.length === 0) return { text: 'No sessions logged yet.', tag: 'none' };
   const last = summaries[summaries.length - 1];
+
+  if (isCardio) {
+    if (summaries.length === 1) {
+      return { text: `First session logged: ${last.best.km}km${last.best.calories ? ` · ${last.best.calories} cal` : ''}. Log another to see a trend.`, tag: 'none' };
+    }
+    const prevCardio = summaries[summaries.length - 2];
+    if (last.best.km > prevCardio.best.km) {
+      return { text: `Distance up from ${prevCardio.best.km}km to ${last.best.km}km - solid endurance progress. Build up gradually (~10% a week is a safe ceiling).`, tag: 'up' };
+    }
+    if (last.best.km < prevCardio.best.km) {
+      return { text: `Distance dropped from ${prevCardio.best.km}km to ${last.best.km}km - fine as a lighter/recovery session, otherwise work back up to ${prevCardio.best.km}km.`, tag: 'down' };
+    }
+    return { text: `Holding steady at ${last.best.km}km - try to shave time or add distance next session.`, tag: 'flat' };
+  }
+
   if (summaries.length === 1) {
     return { text: `One session in so far at ${last.best.weight}kg × ${last.best.reps}. Log it again to unlock a progression tip.`, tag: 'none' };
   }
@@ -1568,20 +1715,22 @@ async function buildExerciseAnalytics() {
   for (const exercise of state.exercises) {
     const historyDesc = await db.getExerciseHistory(exercise.id);
     if (historyDesc.length === 0) continue;
-    const summaries = exerciseSessionSummaries([...historyDesc].reverse());
+    const summaries = exerciseSessionSummaries([...historyDesc].reverse(), exercise.isCardio);
     if (summaries.length === 0) continue;
     const last = summaries[summaries.length - 1];
     const prev = summaries.length > 1 ? summaries[summaries.length - 2] : null;
     let changePct = null;
     if (prev) {
-      if (prev.best.e1rm > 0) {
+      if (exercise.isCardio) {
+        if (prev.best.km > 0) changePct = Math.round(((last.best.km - prev.best.km) / prev.best.km) * 100);
+      } else if (prev.best.e1rm > 0) {
         changePct = Math.round(((last.best.e1rm - prev.best.e1rm) / prev.best.e1rm) * 100);
       } else if (prev.best.reps > 0) {
         // Bodyweight lift (no weight to base an e1RM on) - fall back to reps.
         changePct = Math.round(((last.best.reps - prev.best.reps) / prev.best.reps) * 100);
       }
     }
-    rows.push({ exercise, summaries, last, changePct, recommendation: recommendProgression(summaries) });
+    rows.push({ exercise, summaries, last, changePct, recommendation: recommendProgression(summaries, exercise.isCardio) });
   }
   return rows;
 }
@@ -1594,11 +1743,14 @@ function trendBadge(changePct) {
 }
 
 function analyticsRowHtml(row) {
+  const sub = row.exercise.isCardio
+    ? `Last: ${row.last.best.km}km${row.last.best.calories ? ` · ${row.last.best.calories} cal` : ''}`
+    : `Last: ${row.last.best.weight}kg × ${row.last.best.reps} · est. 1RM ${Math.round(row.last.best.e1rm)}kg`;
   return `
     <button class="entry entry-clickable analytics-row" data-id="${row.exercise.id}">
       <div class="entry-main">
         <div class="entry-title">${escapeHtml(row.exercise.name)} ${trendBadge(row.changePct)}</div>
-        <div class="entry-sub">Last: ${row.last.best.weight}kg × ${row.last.best.reps} · est. 1RM ${Math.round(row.last.best.e1rm)}kg</div>
+        <div class="entry-sub">${sub}</div>
         <div class="analytics-tip">${escapeHtml(row.recommendation.text)}</div>
       </div>
     </button>
@@ -1683,7 +1835,15 @@ function renderRoutineEditor() {
   const ssGroups = computeSupersets(state.routineEditing.exercises);
   container.innerHTML = state.routineEditing.exercises.map((ex, exIdx) => {
     const ss = ssGroups[exIdx];
-    const rows = ex.sets.map((set, setIdx) => `
+    const cardio = isCardioExercise(ex.exerciseId);
+    const rows = ex.sets.map((set, setIdx) => cardio ? `
+      <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
+        <span class="set-num">${setIdx + 1}</span>
+        <input type="number" min="0" step="0.01" class="set-km-input" placeholder="km" value="${set.km}" />
+        <input type="number" min="0" class="set-cal-input" placeholder="cal" value="${set.calories}" />
+        <button class="set-remove" title="remove set">✕</button>
+      </div>
+    ` : `
       <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
         <span class="set-num">${setIdx + 1}</span>
         <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="kg" value="${set.weight}" />
@@ -1702,7 +1862,9 @@ function renderRoutineEditor() {
         </div>
         ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
         <div class="set-table target">
-          <div class="set-table-head"><span>Set</span><span>Weight</span><span>Reps</span><span></span></div>
+          <div class="set-table-head">${cardio
+            ? '<span>Set</span><span>Km</span><span>Cal</span><span></span>'
+            : '<span>Set</span><span>Weight</span><span>Reps</span><span></span>'}</div>
           ${rows}
         </div>
         <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
@@ -1734,18 +1896,30 @@ function renderRoutineEditor() {
     btn.addEventListener('click', () => {
       const ex = state.routineEditing.exercises[Number(btn.dataset.ex)];
       const lastSet = ex.sets[ex.sets.length - 1];
-      ex.sets.push({ reps: lastSet ? lastSet.reps : 8, weight: lastSet ? lastSet.weight : 0 });
+      if (isCardioExercise(ex.exerciseId)) {
+        ex.sets.push({ km: lastSet ? lastSet.km : 0, calories: lastSet ? lastSet.calories : 0 });
+      } else {
+        ex.sets.push({ reps: lastSet ? lastSet.reps : 8, weight: lastSet ? lastSet.weight : 0 });
+      }
       renderRoutineEditor();
     });
   });
   container.querySelectorAll('.set-row-table').forEach(row => {
     const exIdx = Number(row.dataset.ex);
     const setIdx = Number(row.dataset.set);
-    const set = state.routineEditing.exercises[exIdx].sets[setIdx];
-    selectContentsOnFocus(row.querySelector('.set-weight-input'));
-    selectContentsOnFocus(row.querySelector('.set-reps-input'));
-    row.querySelector('.set-weight-input').addEventListener('input', e => { set.weight = Number(e.target.value) || 0; });
-    row.querySelector('.set-reps-input').addEventListener('input', e => { set.reps = Number(e.target.value) || 0; });
+    const exObj = state.routineEditing.exercises[exIdx];
+    const set = exObj.sets[setIdx];
+    if (isCardioExercise(exObj.exerciseId)) {
+      selectContentsOnFocus(row.querySelector('.set-km-input'));
+      selectContentsOnFocus(row.querySelector('.set-cal-input'));
+      row.querySelector('.set-km-input').addEventListener('input', e => { set.km = Number(e.target.value) || 0; });
+      row.querySelector('.set-cal-input').addEventListener('input', e => { set.calories = Number(e.target.value) || 0; });
+    } else {
+      selectContentsOnFocus(row.querySelector('.set-weight-input'));
+      selectContentsOnFocus(row.querySelector('.set-reps-input'));
+      row.querySelector('.set-weight-input').addEventListener('input', e => { set.weight = Number(e.target.value) || 0; });
+      row.querySelector('.set-reps-input').addEventListener('input', e => { set.reps = Number(e.target.value) || 0; });
+    }
     row.querySelector('.set-remove').addEventListener('click', () => {
       state.routineEditing.exercises[exIdx].sets.splice(setIdx, 1);
       renderRoutineEditor();

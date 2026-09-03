@@ -4,6 +4,33 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
+// Cardio exercises track distance/calories instead of weight/reps. Installs
+// that already existed before cardio support shipped have "Running" etc.
+// saved without the isCardio flag, and won't have "Treadmill"/"Elliptical"
+// at all - both are patched in here so every device catches up without
+// needing a fresh install.
+function migrateCardioExercises(store) {
+  let changed = false;
+  store.exercises.forEach(e => {
+    if (e.category === 'Cardio' && !e.isCardio) {
+      e.isCardio = true;
+      changed = true;
+    }
+  });
+  const names = new Set(store.exercises.map(e => e.name.toLowerCase()));
+  const additions = [
+    { name: 'Treadmill', category: 'Cardio', equipment: 'Machine', isCardio: true },
+    { name: 'Elliptical', category: 'Cardio', equipment: 'Machine', isCardio: true }
+  ];
+  additions.forEach(a => {
+    if (!names.has(a.name.toLowerCase())) {
+      store.exercises.push({ id: uid(), ...a });
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 function loadDb() {
   const raw = localStorage.getItem(DB_KEY);
   if (raw) {
@@ -12,6 +39,7 @@ function loadDb() {
       if (!parsed.exercises) parsed.exercises = [];
       if (!parsed.workouts) parsed.workouts = [];
       if (!parsed.routines) parsed.routines = [];
+      if (migrateCardioExercises(parsed)) saveDb(parsed);
       return parsed;
     } catch {
       // fall through and reseed a fresh db below
@@ -39,9 +67,9 @@ const db = {
     return loadDb().exercises;
   },
 
-  async addExercise({ name, category, equipment }) {
+  async addExercise({ name, category, equipment, isCardio }) {
     const store = loadDb();
-    const exercise = { id: uid(), name, category: category || 'Other', equipment: equipment || 'None' };
+    const exercise = { id: uid(), name, category: category || 'Other', equipment: equipment || 'None', isCardio: !!isCardio };
     store.exercises.push(exercise);
     saveDb(store);
     return exercise;
@@ -95,21 +123,27 @@ const db = {
   },
 
   async addWorkout({ name, startedAt, endedAt, date, exercises, notes }) {
+    const store = loadDb();
+    const cardioIds = new Set(store.exercises.filter(e => e.isCardio).map(e => e.id));
     const cleanExercises = exercises
-      .map(e => ({
-        exerciseId: e.exerciseId,
-        name: e.name,
-        notes: e.notes || '',
-        linkedToPrev: !!e.linkedToPrev,
-        sets: (e.sets || [])
-          .filter(s => Number(s.reps) > 0 || Number(s.weight) > 0)
-          .map(s => ({ reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, warmup: !!s.warmup }))
-      }))
+      .map(e => {
+        const cardio = cardioIds.has(e.exerciseId);
+        return {
+          exerciseId: e.exerciseId,
+          name: e.name,
+          notes: e.notes || '',
+          linkedToPrev: !!e.linkedToPrev,
+          sets: (e.sets || [])
+            .filter(s => cardio ? (Number(s.km) > 0 || Number(s.calories) > 0) : (Number(s.reps) > 0 || Number(s.weight) > 0))
+            .map(s => cardio
+              ? { km: Number(s.km) || 0, calories: Number(s.calories) || 0 }
+              : { reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, warmup: !!s.warmup })
+        };
+      })
       .filter(e => e.sets.length > 0);
     if (cleanExercises.length === 0) {
       throw new Error('At least one exercise with a logged set is required');
     }
-    const store = loadDb();
     const workout = {
       id: uid(),
       name: (name || '').trim() || 'Workout',

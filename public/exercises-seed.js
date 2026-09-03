@@ -45,9 +45,11 @@ const DEFAULT_EXERCISES = [
   { name: 'Cable Crunch', category: 'Core', equipment: 'Cable' },
   { name: 'Russian Twist', category: 'Core', equipment: 'Bodyweight' },
 
-  { name: 'Running', category: 'Cardio', equipment: 'None' },
-  { name: 'Cycling', category: 'Cardio', equipment: 'Machine' },
-  { name: 'Rowing', category: 'Cardio', equipment: 'Machine' },
+  { name: 'Running', category: 'Cardio', equipment: 'None', isCardio: true },
+  { name: 'Treadmill', category: 'Cardio', equipment: 'Machine', isCardio: true },
+  { name: 'Elliptical', category: 'Cardio', equipment: 'Machine', isCardio: true },
+  { name: 'Cycling', category: 'Cardio', equipment: 'Machine', isCardio: true },
+  { name: 'Rowing', category: 'Cardio', equipment: 'Machine', isCardio: true },
 
   { name: 'Clean and Jerk', category: 'Olympic', equipment: 'Barbell' },
   { name: 'Snatch', category: 'Olympic', equipment: 'Barbell' },
