@@ -1,4 +1,13 @@
 const ACTIVE_WORKOUT_KEY = 'ironLogActiveWorkout';
+const WARMUP_HINT_KEY = 'ironLogWarmupHintSeen';
+
+// The hint explains a control that isn't self-evident, but repeating it under
+// every exercise pads the page more with each one added. Show it under the
+// first exercise only, and retire it for good the first time a warm-up is
+// actually marked.
+function warmupHintNeeded() {
+  return localStorage.getItem(WARMUP_HINT_KEY) !== '1';
+}
 
 const state = {
   exercises: [],
@@ -625,7 +634,7 @@ function renderActiveWorkout() {
           <div class="set-table-head"><span>Set</span><span>Previous</span><span>Weight</span><span>Reps</span><span></span><span></span></div>
           ${rows}
         </div>
-        <div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>
+        ${exIdx === 0 && warmupHintNeeded() ? `<div class="warmup-hint">Tap a set number to make it a warm-up (W). Warm-ups don't count toward volume or records.</div>` : ''}
         <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
         <input type="text" class="exercise-note-input" data-ex="${exIdx}"
                placeholder="Add a note for ${escapeAttr(ex.name)}..." value="${escapeAttr(ex.notes || '')}" />
@@ -726,6 +735,7 @@ function bindActiveExerciseEvents() {
     const set = state.activeWorkout.exercises[exIdx].sets[setIdx];
 
     row.querySelector('.set-num').addEventListener('click', () => {
+      localStorage.setItem(WARMUP_HINT_KEY, '1');
       set.warmup = !set.warmup;
       persistActiveWorkout();
       renderActiveWorkout();

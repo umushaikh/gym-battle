@@ -132,7 +132,14 @@ label { display: block; margin-bottom: 12px; }
 
 /* Lists & entries */
 .list { display: flex; flex-direction: column; gap: 10px; }
-.list.scrollable { max-height: 50vh; overflow-y: auto; }
+/* .modal-sheet is a fixed-height flex column with overflow:hidden, so its
+   header and any trailing action button stay pinned in view; whichever
+   middle section is marked .scrollable is meant to be the part that scrolls.
+   That only worked for a .list, since the overflow rule was scoped to
+   .list.scrollable - a bare .scrollable div (template editor, backup sheet,
+   edit-exercise form) had no scroll behavior at all, so content taller than
+   the sheet was simply clipped with no way to reach it. */
+.scrollable { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .entry {
   background: var(--surface-2);
   border-radius: 10px;
