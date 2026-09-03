@@ -24,16 +24,47 @@ const state = {
 
 if ('serviceWorker' in navigator) {
   // Whether a worker was already in charge when this page loaded. If one was,
-  // a later handover means a new version has been deployed, so reload once to
-  // show it. Guarded so a first-ever install doesn't reload, and so this can
-  // never loop.
-  const hadController = !!navigator.serviceWorker.controller;
-  let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || reloading) return;
-    reloading = true;
+  // a later handover means a new version has been deployed, so reload to show
+  // it - but only once nothing would be lost by doing so. An open modal (an
+  // exercise search mid-keystroke, an unsaved template being built, an
+  // in-progress exercise edit) holds state that lives only in memory; an
+  // immediate reload silently wiped it out from under whoever was typing,
+  // which looked exactly like their input vanishing and the app dropping
+  // back to its home screen mid-sentence.
+  // Tracks whether a controller has existed at any point this session, not
+  // just at load time. A fresh install has none yet, so its first
+  // controllerchange is that worker claiming control for the very first
+  // time - nothing to update from, so it must not trigger a reload. But that
+  // flag has to flip to true right after, or every real update for the rest
+  // of the tab's life would be mistaken for the same first-time claim and
+  // silently ignored forever - which is worse than reloading too eagerly.
+  let controllerSeen = !!navigator.serviceWorker.controller;
+  let updateReady = false;
+  let reloaded = false;
+
+  function anyModalOpen() {
+    return !!document.querySelector('.modal:not(.hidden)');
+  }
+
+  function reloadWhenSafe() {
+    if (!updateReady || reloaded || anyModalOpen()) return;
+    reloaded = true;
     window.location.reload();
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (controllerSeen && !reloaded) {
+      updateReady = true;
+      reloadWhenSafe();
+    }
+    controllerSeen = true;
   });
+
+  // A modal can be closed well before any other page interaction happens, so
+  // poll rather than only reacting to specific close buttons - there are
+  // several, and missing one would mean the deferred reload never fires.
+  setInterval(reloadWhenSafe, 2000);
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
