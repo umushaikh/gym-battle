@@ -16,7 +16,7 @@
 
 <div id="app" class="app">
   <header class="topbar">
-    <div class="brand">💪 Iron Log</div>
+    <div class="brand">💪 Iron Log <span id="version-tag" class="version-tag"></span></div>
     <button id="data-btn" class="icon-btn" title="Backup &amp; restore">⚙</button>
   </header>
 
@@ -185,6 +185,8 @@
       <h3 class="subheading">Restore</h3>
       <p class="hint-text">Replaces everything currently in the app with a backup file.</p>
       <input type="file" id="import-file" accept="application/json,.json" />
+
+      <p id="version-line" class="version-line"></p>
     </div>
   </div>
 </div>
@@ -223,6 +225,7 @@
   </div>
 </div>
 
+<script src="version.js"></script>
 <script src="exercises-seed.js"></script>
 <script src="db.js"></script>
 <script src="app.js"></script>

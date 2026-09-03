@@ -344,7 +344,19 @@ async function openDataModal() {
     <div class="pr-row"><span>Routines</span><strong>${data.routines.length}</strong></div>
     <div class="pr-row"><span>Exercises</span><strong>${data.exercises.length}</strong></div>
   `;
+  document.getElementById('version-line').textContent = versionLabel(true);
   document.getElementById('data-modal').classList.remove('hidden');
+}
+
+// version.js is stamped by the deploy workflow with the real commit and
+// build time; running locally (node server.js with no deploy) leaves the
+// placeholders in place, so that case is shown plainly rather than as a
+// nonsense hash.
+function versionLabel(withDate) {
+  if (typeof APP_VERSION === 'undefined' || APP_VERSION.sha.startsWith('__')) return 'dev build';
+  const short = APP_VERSION.sha.slice(0, 7);
+  if (!withDate) return short;
+  return `Build ${short} · ${APP_VERSION.builtAt}`;
 }
 
 async function exportBackupFile() {
@@ -423,6 +435,7 @@ async function handleImportFile(event) {
 
 // ---------- Init ----------
 async function init() {
+  document.getElementById('version-tag').textContent = versionLabel(false);
   state.exercises = await db.getExercises();
   restoreActiveWorkout();
   bindEvents();

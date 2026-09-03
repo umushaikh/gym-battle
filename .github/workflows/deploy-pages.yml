@@ -44,6 +44,17 @@ jobs:
             && echo "stamped BUILD_ID=${GITHUB_SHA}" \
             || { echo "service worker was not stamped"; exit 1; }
 
+      # Same commit, shown in the app itself (topbar and Settings) so it's
+      # obvious at a glance whether a device is on the latest build without
+      # needing to compare against git or guess from behavior.
+      - name: Stamp the visible version label
+        run: |
+          BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M UTC')"
+          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/; s/__BUILD_TIME__/${BUILD_TIME}/" public/version.js
+          grep -q "${GITHUB_SHA}" public/version.js && grep -q "${BUILD_TIME}" public/version.js \
+            && echo "stamped version.js: ${GITHUB_SHA} @ ${BUILD_TIME}" \
+            || { echo "version.js was not stamped"; exit 1; }
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./public

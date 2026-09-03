@@ -40,6 +40,7 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .brand { font-weight: 700; font-size: 1.15rem; }
+.version-tag { font-weight: 400; font-size: 0.68rem; color: var(--muted); vertical-align: middle; }
 
 .content { padding: 16px 16px 24px; }
 .tab-panel { display: none; }
@@ -381,6 +382,7 @@ label { display: block; margin-bottom: 12px; }
 .picker-actions .primary-btn:disabled:active { transform: none; }
 .picker-actions .secondary-btn { margin: 0; white-space: nowrap; border-style: solid; color: var(--text); }
 .hint-text { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0 0 12px; }
+.version-line { color: var(--muted); font-size: 0.75rem; text-align: center; margin: 18px 0 4px; }
 #import-file { padding: 10px; font-size: 0.85rem; }
 .share-text {
   width: 100%;

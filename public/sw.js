@@ -8,6 +8,7 @@ const ASSETS = [
   './index.html',
   './app.js',
   './db.js',
+  './version.js',
   './exercises-seed.js',
   './styles.css',
   './manifest.json',
