@@ -627,6 +627,7 @@ function renderActiveWorkout() {
           <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
           <strong>${escapeHtml(ex.name)}</strong>
           ${exIdx > 0 ? `<button class="ss-btn ${ex.linkedToPrev ? 'on' : ''}" data-ex="${exIdx}" title="${ex.linkedToPrev ? 'Break the superset' : 'Superset with the exercise above'}">⇄</button>` : ''}
+          <button class="icon-btn edit-ex-btn" data-ex="${exIdx}" title="Edit this exercise's name/category/equipment">✎</button>
           <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
         ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
@@ -709,6 +710,14 @@ function bindActiveExerciseEvents() {
       ex.linkedToPrev = !ex.linkedToPrev;
       persistActiveWorkout();
       renderActiveWorkout();
+    });
+  });
+
+  container.querySelectorAll('.edit-ex-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const exIdx = Number(btn.dataset.ex);
+      const full = state.exercises.find(e => e.id === state.activeWorkout.exercises[exIdx].exerciseId);
+      if (full) openExerciseEditor(full, { from: 'workout', exIdx });
     });
   });
 
@@ -1086,7 +1095,12 @@ function closeDetail() {
   document.getElementById('edit-exercise-btn').classList.add('hidden');
 }
 
-function openExerciseEditor(exercise) {
+function openExerciseEditor(exercise, context) {
+  // Where this was opened from decides what saving should update afterward:
+  // the Exercises tab just edits the library entry, but opening it from the
+  // exercise's row in an in-progress workout or template needs that specific
+  // slot re-pointed at the result too, not just the library.
+  state.exerciseEditContext = context || { from: 'detail' };
   document.getElementById('edit-exercise-name').value = exercise.name;
   document.getElementById('edit-exercise-category').value = exercise.category || '';
   document.getElementById('edit-exercise-equipment').value = exercise.equipment || '';
@@ -1096,6 +1110,47 @@ function openExerciseEditor(exercise) {
 
 function closeExerciseEditor() {
   document.getElementById('edit-exercise-modal').classList.add('hidden');
+}
+
+// Renaming refreshes every slot referencing this exercise, since it may
+// appear more than once (e.g. across a superset).
+function refreshExerciseNameEverywhere(exerciseId, name) {
+  if (state.activeWorkout) {
+    let changed = false;
+    state.activeWorkout.exercises.forEach(e => {
+      if (e.exerciseId === exerciseId) { e.name = name; changed = true; }
+    });
+    if (changed) persistActiveWorkout();
+  }
+  if (state.routineEditing) {
+    state.routineEditing.exercises.forEach(e => { if (e.exerciseId === exerciseId) e.name = name; });
+  }
+}
+
+// Splitting into a separate exercise should only repoint the one slot that
+// was actually being edited at that new exercise, not every occurrence of
+// the old one elsewhere in the same workout.
+function repointEditedSlot(context, newExercise) {
+  if (context.from === 'workout' && state.activeWorkout) {
+    const slot = state.activeWorkout.exercises[context.exIdx];
+    if (slot) {
+      slot.exerciseId = newExercise.id;
+      slot.name = newExercise.name;
+      persistActiveWorkout();
+    }
+  } else if (context.from === 'routine' && state.routineEditing) {
+    const slot = state.routineEditing.exercises[context.exIdx];
+    if (slot) {
+      slot.exerciseId = newExercise.id;
+      slot.name = newExercise.name;
+    }
+  }
+}
+
+function rerenderEditContext(context) {
+  if (context.from === 'workout') renderActiveWorkout();
+  else if (context.from === 'routine') renderRoutineEditor();
+  else if (context.from === 'detail') closeDetail();
 }
 
 async function saveExerciseEdit() {
@@ -1131,8 +1186,9 @@ async function saveExerciseEdit() {
       const newName = clashes && equipment ? `${name} (${equipment})` : name;
       const created = await db.addExercise({ name: newName, category, equipment });
       state.exercises.push(created);
+      repointEditedSlot(state.exerciseEditContext, created);
       closeExerciseEditor();
-      closeDetail();
+      rerenderEditContext(state.exerciseEditContext);
       renderLibraryTab();
       alert(`Added "${newName}" as a separate exercise, tracked on its own.\n\n"${original.name}" keeps its ${sessions} session${sessions !== 1 ? 's' : ''}.`);
       return;
@@ -1141,13 +1197,10 @@ async function saveExerciseEdit() {
 
   const updated = await db.updateExercise(id, { name, category, equipment });
   Object.assign(original, updated);
-  if (state.activeWorkout) {
-    state.activeWorkout.exercises.forEach(e => { if (e.exerciseId === id) e.name = updated.name; });
-    persistActiveWorkout();
-  }
+  refreshExerciseNameEverywhere(id, updated.name);
   state.lastCache = {};
   closeExerciseEditor();
-  closeDetail();
+  rerenderEditContext(state.exerciseEditContext);
   renderLibraryTab();
 }
 
@@ -1355,6 +1408,7 @@ function renderRoutineEditor() {
           <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
           <strong>${escapeHtml(ex.name)}</strong>
           ${exIdx > 0 ? `<button class="ss-btn ${ex.linkedToPrev ? 'on' : ''}" data-ex="${exIdx}" title="${ex.linkedToPrev ? 'Break the superset' : 'Superset with the exercise above'}">⇄</button>` : ''}
+          <button class="icon-btn edit-ex-btn" data-ex="${exIdx}" title="Edit this exercise's name/category/equipment">✎</button>
           <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
         </div>
         ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
@@ -1378,6 +1432,13 @@ function renderRoutineEditor() {
       const ex = state.routineEditing.exercises[Number(btn.dataset.ex)];
       ex.linkedToPrev = !ex.linkedToPrev;
       renderRoutineEditor();
+    });
+  });
+  container.querySelectorAll('.edit-ex-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const exIdx = Number(btn.dataset.ex);
+      const full = state.exercises.find(e => e.id === state.routineEditing.exercises[exIdx].exerciseId);
+      if (full) openExerciseEditor(full, { from: 'routine', exIdx });
     });
   });
   container.querySelectorAll('.add-set-row-btn').forEach(btn => {
