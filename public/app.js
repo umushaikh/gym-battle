@@ -525,6 +525,7 @@ function switchTab(tab) {
   document.getElementById(`tab-${tab}`).classList.add('active');
   if (tab === 'workout') renderWorkoutTab();
   if (tab === 'history') loadHistory();
+  if (tab === 'analytics') renderAnalyticsTab();
   if (tab === 'exercises') renderLibraryTab();
 }
 
@@ -1476,6 +1477,185 @@ function drawExerciseChart(sessions) {
     ctx.fillText(points[0].date.slice(5), padding.left - 10, height - 4);
     ctx.fillText(points[points.length - 1].date.slice(5), width - padding.right - 30, height - 4);
   }
+}
+
+// ---------- Analytics tab ----------
+function daysAgo(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+function weekVolumeStats(workouts) {
+  let thisWeek = 0, lastWeek = 0, thisWeekCount = 0, sessionsLast28 = 0;
+  workouts.forEach(w => {
+    const age = daysAgo(w.date);
+    if (age < 7) { thisWeek += workoutVolume(w); thisWeekCount++; }
+    else if (age < 14) { lastWeek += workoutVolume(w); }
+    if (age < 28) sessionsLast28++;
+  });
+  const volumeChangePct = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : null;
+  const avgPerWeek = Math.round((sessionsLast28 / 4) * 10) / 10;
+  return { thisWeek, lastWeek, volumeChangePct, thisWeekCount, avgPerWeek };
+}
+
+// Reduces a history of sessions (oldest first) down to one "best set" per
+// session - the one with the highest estimated 1RM that day, ignoring
+// warm-ups the same way every other record in the app does.
+function exerciseSessionSummaries(sessions) {
+  return sessions.map(s => {
+    let best = null;
+    let volume = 0;
+    s.sets.forEach(set => {
+      if (set.warmup) return;
+      volume += set.reps * set.weight;
+      const val = e1rm(set.reps, set.weight);
+      if (!best || val > best.e1rm) best = { weight: set.weight, reps: set.reps, e1rm: val };
+    });
+    return best ? { date: s.date, best, volume } : null;
+  }).filter(Boolean);
+}
+
+// A common progressive-overload rule of thumb: once a working set clears a
+// rep ceiling it's time to add weight; a stall or drop at the same weight
+// calls for repeating it rather than pushing further.
+const REP_CEILING = 12;
+
+function recommendProgression(summaries) {
+  if (summaries.length === 0) return { text: 'No sets logged yet.', tag: 'none' };
+  const last = summaries[summaries.length - 1];
+  if (summaries.length === 1) {
+    return { text: `One session in so far at ${last.best.weight}kg × ${last.best.reps}. Log it again to unlock a progression tip.`, tag: 'none' };
+  }
+  const prev = summaries[summaries.length - 2];
+
+  // Bodyweight moves (no added weight) progress on reps alone, so they get
+  // their own read rather than reporting "0kg to 0kg, hold here".
+  if (last.best.weight === 0 && prev.best.weight === 0) {
+    if (last.best.reps > prev.best.reps) {
+      return { text: `Bodyweight reps up from ${prev.best.reps} to ${last.best.reps} - keep pushing, or add weight once you clear ${REP_CEILING}.`, tag: 'up' };
+    }
+    if (last.best.reps < prev.best.reps) {
+      return { text: `Reps dipped from ${prev.best.reps} to ${last.best.reps} - repeat this rep count before pushing further.`, tag: 'down' };
+    }
+    if (last.best.reps >= REP_CEILING) {
+      return { text: `Consistently hitting ${last.best.reps}+ reps - add external weight (vest or plate) to keep progressing.`, tag: 'up' };
+    }
+    return { text: `Holding at ${last.best.reps} reps - aim for one more next time.`, tag: 'flat' };
+  }
+
+  if (last.best.weight > prev.best.weight) {
+    return { text: `Just moved up to ${last.best.weight}kg from ${prev.best.weight}kg. Hold here and build reps back up before jumping again.`, tag: 'hold' };
+  }
+  if (last.best.weight < prev.best.weight) {
+    return { text: `Weight dropped to ${last.best.weight}kg from ${prev.best.weight}kg. Treat this as a deload - work back up once it feels solid.`, tag: 'down' };
+  }
+  // Same weight as last time.
+  if (last.best.reps >= REP_CEILING) {
+    const bump = Math.max(1, Math.round(last.best.weight * 0.025 * 2) / 2);
+    return { text: `Hit ${last.best.reps} reps at ${last.best.weight}kg - add ${bump}kg next session and reset toward 8 reps.`, tag: 'up' };
+  }
+  if (last.best.reps > prev.best.reps) {
+    return { text: `Same ${last.best.weight}kg, reps up from ${prev.best.reps} to ${last.best.reps}. Keep adding reps until ${REP_CEILING}, then increase weight.`, tag: 'up' };
+  }
+  if (last.best.reps < prev.best.reps) {
+    return { text: `Reps dipped at ${last.best.weight}kg (${prev.best.reps} to ${last.best.reps}) - repeat this weight before pushing further.`, tag: 'down' };
+  }
+  return { text: `Holding steady at ${last.best.weight}kg × ${last.best.reps} - aim for one more rep next time.`, tag: 'flat' };
+}
+
+async function buildExerciseAnalytics() {
+  const rows = [];
+  for (const exercise of state.exercises) {
+    const historyDesc = await db.getExerciseHistory(exercise.id);
+    if (historyDesc.length === 0) continue;
+    const summaries = exerciseSessionSummaries([...historyDesc].reverse());
+    if (summaries.length === 0) continue;
+    const last = summaries[summaries.length - 1];
+    const prev = summaries.length > 1 ? summaries[summaries.length - 2] : null;
+    let changePct = null;
+    if (prev) {
+      if (prev.best.e1rm > 0) {
+        changePct = Math.round(((last.best.e1rm - prev.best.e1rm) / prev.best.e1rm) * 100);
+      } else if (prev.best.reps > 0) {
+        // Bodyweight lift (no weight to base an e1RM on) - fall back to reps.
+        changePct = Math.round(((last.best.reps - prev.best.reps) / prev.best.reps) * 100);
+      }
+    }
+    rows.push({ exercise, summaries, last, changePct, recommendation: recommendProgression(summaries) });
+  }
+  return rows;
+}
+
+function trendBadge(changePct) {
+  if (changePct === null) return '<span class="trend-badge flat">New</span>';
+  if (changePct > 0) return `<span class="trend-badge up">▲ ${changePct}%</span>`;
+  if (changePct < 0) return `<span class="trend-badge down">▼ ${Math.abs(changePct)}%</span>`;
+  return '<span class="trend-badge flat">— 0%</span>';
+}
+
+function analyticsRowHtml(row) {
+  return `
+    <button class="entry entry-clickable analytics-row" data-id="${row.exercise.id}">
+      <div class="entry-main">
+        <div class="entry-title">${escapeHtml(row.exercise.name)} ${trendBadge(row.changePct)}</div>
+        <div class="entry-sub">Last: ${row.last.best.weight}kg × ${row.last.best.reps} · est. 1RM ${Math.round(row.last.best.e1rm)}kg</div>
+        <div class="analytics-tip">${escapeHtml(row.recommendation.text)}</div>
+      </div>
+    </button>
+  `;
+}
+
+function bindAnalyticsRows(container, rows) {
+  container.querySelectorAll('.analytics-row').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = rows.find(r => r.exercise.id === btn.dataset.id);
+      if (row) openExerciseDetail(row.exercise);
+    });
+  });
+}
+
+async function renderAnalyticsTab() {
+  const container = document.getElementById('analytics-body');
+  const workouts = await db.getWorkouts();
+  if (workouts.length === 0) {
+    container.innerHTML = `<div class="empty-state">Finish a few workouts to see trends, progression tips, and your best lifts here.</div>`;
+    return;
+  }
+
+  const stats = weekVolumeStats(workouts);
+  const rows = await buildExerciseAnalytics();
+  // Sorting once and slicing both ends keeps "best" and "needs attention"
+  // consistent with each other instead of computed by separate passes.
+  const ranked = rows.filter(r => r.changePct !== null).sort((a, b) => b.changePct - a.changePct);
+  const best = ranked.filter(r => r.changePct > 0).slice(0, 3);
+  const needsWork = ranked.filter(r => r.changePct <= 0).slice(-3).reverse();
+  const newLifts = rows.filter(r => r.changePct === null);
+
+  container.innerHTML = `
+    <h3 class="subheading">This week</h3>
+    <div class="pr-grid">
+      <div class="pr-cell">
+        <div class="pr-row"><span>Volume</span><strong>${Math.round(stats.thisWeek).toLocaleString()}kg</strong></div>
+        <div class="pr-row"><span>vs last week</span><strong>${stats.volumeChangePct === null ? '—' : `${stats.volumeChangePct > 0 ? '+' : ''}${stats.volumeChangePct}%`}</strong></div>
+      </div>
+      <div class="pr-cell">
+        <div class="pr-row"><span>Workouts</span><strong>${stats.thisWeekCount}</strong></div>
+        <div class="pr-row"><span>Avg/week (4wk)</span><strong>${stats.avgPerWeek}</strong></div>
+      </div>
+    </div>
+
+    <h3 class="subheading">Best progress</h3>
+    <div class="list">${best.length ? best.map(analyticsRowHtml).join('') : '<div class="empty-state">Log a couple more sessions on a lift to see it climb here.</div>'}</div>
+
+    <h3 class="subheading">Needs attention</h3>
+    <div class="list">${needsWork.length ? needsWork.map(analyticsRowHtml).join('') : '<div class="empty-state">Nothing stalled right now.</div>'}</div>
+
+    ${newLifts.length ? `
+    <h3 class="subheading">Still gathering data</h3>
+    <div class="list">${newLifts.map(analyticsRowHtml).join('')}</div>` : ''}
+  `;
+
+  bindAnalyticsRows(container, rows);
 }
 
 // ---------- Routine editor ----------
