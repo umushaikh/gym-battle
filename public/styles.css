@@ -139,7 +139,16 @@ label { display: block; margin-bottom: 12px; }
    .list.scrollable - a bare .scrollable div (template editor, backup sheet,
    edit-exercise form) had no scroll behavior at all, so content taller than
    the sheet was simply clipped with no way to reach it. */
-.scrollable { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/* No -webkit-overflow-scrolling: touch here on purpose. It promotes this
+   element to its own compositing layer, and combined with a position:fixed
+   ancestor whose content is rewritten on every keystroke (the exercise
+   picker's live search results), WebKit can drop that layer mid-render and
+   flash through to whatever is behind the modal for a frame - visible as the
+   picker apparently vanishing while typing. Modern iOS Safari's native
+   momentum scrolling doesn't need the property at all (that was an iOS <13
+   workaround), so removing it costs nothing.
+*/
+.scrollable { flex: 1; min-height: 0; overflow-y: auto; }
 .entry {
   background: var(--surface-2);
   border-radius: 10px;
