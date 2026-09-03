@@ -201,6 +201,18 @@ label { display: block; margin-bottom: 12px; }
 .workout-name-input { font-size: 1.1rem; font-weight: 700; border: none; background: transparent; padding: 4px 0; margin: 0; width: auto; flex: 1; }
 .workout-name-input:focus { outline: none; border-bottom: 1px solid var(--accent-2); }
 .active-timer { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); font-size: 1.1rem; white-space: nowrap; }
+.active-timer.paused { color: var(--muted); }
+.pause-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+.pause-btn.resume { color: var(--accent); border-color: var(--accent); }
 .notes-label textarea {
   display: block;
   width: 100%;

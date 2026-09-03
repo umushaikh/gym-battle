@@ -82,6 +82,14 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// A weight/reps field showing "0" (a fresh set, or one copied from a set
+// that was legitimately zero) made every entry start with deleting that zero
+// by hand. Selecting its content on focus means the first keystroke just
+// replaces it, the way tapping into a pre-filled amount field normally works.
+function selectContentsOnFocus(input) {
+  input.addEventListener('focus', () => input.select());
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -317,6 +325,16 @@ function restoreRest() {
   }
 }
 
+// Mobile browsers throttle or fully suspend setInterval while the tab or app
+// is backgrounded, so the countdown can sit stale for the seconds/minutes
+// the phone was locked or another app was in front. Force an immediate
+// catch-up the moment the page is visible again instead of waiting for the
+// interval to resume on its own - otherwise a finished rest can sit
+// silently expired, with no beep and no ticking to zero shown.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.rest) tickRest();
+});
+
 // ---------- Backup & restore ----------
 async function openDataModal() {
   document.getElementById('rest-default-input').value = getDefaultRest();
@@ -421,6 +439,7 @@ function bindEvents() {
   document.getElementById('add-exercise-btn').addEventListener('click', () => openPicker('workout'));
   document.getElementById('cancel-workout-btn').addEventListener('click', cancelWorkout);
   document.getElementById('finish-workout-btn').addEventListener('click', finishWorkout);
+  document.getElementById('pause-workout-btn').addEventListener('click', togglePauseWorkout);
   document.getElementById('active-workout-name').addEventListener('input', e => {
     if (state.activeWorkout) {
       state.activeWorkout.name = e.target.value;
@@ -455,10 +474,15 @@ function bindEvents() {
   document.getElementById('rest-minus').addEventListener('click', () => adjustRest(-15));
   document.getElementById('rest-plus').addEventListener('click', () => adjustRest(15));
   document.getElementById('rest-skip').addEventListener('click', stopRest);
-  document.getElementById('rest-default-input').addEventListener('change', e => {
+  // Saved on every keystroke rather than waiting for the field to blur: a
+  // quick tap on Close right after typing doesn't reliably fire 'change'
+  // first on mobile, which could silently drop the new value.
+  document.getElementById('rest-default-input').addEventListener('input', e => {
     const secs = Math.max(0, Math.min(900, Number(e.target.value) || 0));
     localStorage.setItem(REST_DEFAULT_KEY, String(secs));
-    e.target.value = secs;
+  });
+  document.getElementById('rest-default-input').addEventListener('change', e => {
+    e.target.value = getDefaultRest();
   });
 
   document.getElementById('export-btn').addEventListener('click', exportBackupFile);
@@ -568,7 +592,7 @@ async function loadRoutines() {
 }
 
 function startEmptyWorkout() {
-  state.activeWorkout = { name: '', startedAt: Date.now(), notes: '', exercises: [] };
+  state.activeWorkout = { name: '', startedAt: Date.now(), pausedAt: null, pausedMs: 0, notes: '', exercises: [] };
   persistActiveWorkout();
   renderWorkoutTab();
 }
@@ -577,6 +601,8 @@ function startFromRoutine(routine) {
   state.activeWorkout = {
     name: routine.name,
     startedAt: Date.now(),
+    pausedAt: null,
+    pausedMs: 0,
     notes: '',
     exercises: routine.exercises.map(e => ({
       exerciseId: e.exerciseId,
@@ -603,6 +629,7 @@ function cancelWorkout() {
 function startTimer() {
   stopTimer();
   updateTimerDisplay();
+  renderPauseButton();
   state.timerInterval = setInterval(updateTimerDisplay, 1000);
 }
 
@@ -613,11 +640,44 @@ function stopTimer() {
 
 function updateTimerDisplay() {
   if (!state.activeWorkout) return;
-  const elapsed = Date.now() - state.activeWorkout.startedAt;
+  // While paused, "now" is frozen at the moment pausing happened, so the
+  // display stops advancing without needing to stop the interval itself.
+  const now = state.activeWorkout.pausedAt || Date.now();
+  const elapsed = now - state.activeWorkout.startedAt - (state.activeWorkout.pausedMs || 0);
   const totalSec = Math.max(0, Math.floor(elapsed / 1000));
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   document.getElementById('active-timer').textContent = `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function togglePauseWorkout() {
+  if (!state.activeWorkout) return;
+  if (state.activeWorkout.pausedAt) {
+    state.activeWorkout.pausedMs = (state.activeWorkout.pausedMs || 0) + (Date.now() - state.activeWorkout.pausedAt);
+    state.activeWorkout.pausedAt = null;
+  } else {
+    state.activeWorkout.pausedAt = Date.now();
+  }
+  persistActiveWorkout();
+  updateTimerDisplay();
+  renderPauseButton();
+}
+
+function renderPauseButton() {
+  const btn = document.getElementById('pause-workout-btn');
+  const timer = document.getElementById('active-timer');
+  const paused = !!(state.activeWorkout && state.activeWorkout.pausedAt);
+  btn.textContent = paused ? '▶' : '⏸';
+  btn.title = paused ? 'Resume workout' : 'Pause workout';
+  btn.classList.toggle('resume', paused);
+  timer.classList.toggle('paused', paused);
+}
+
+// The total paused time so far, folding in whatever segment is currently
+// in progress if the workout is still paused right now.
+function totalPausedMs(workout) {
+  const running = workout.pausedAt ? Date.now() - workout.pausedAt : 0;
+  return (workout.pausedMs || 0) + running;
 }
 
 function renderActiveWorkout() {
@@ -780,6 +840,8 @@ function bindActiveExerciseEvents() {
       persistActiveWorkout();
       renderActiveWorkout();
     });
+    selectContentsOnFocus(row.querySelector('.set-weight-input'));
+    selectContentsOnFocus(row.querySelector('.set-reps-input'));
     row.querySelector('.set-weight-input').addEventListener('input', e => {
       set.weight = e.target.value;
       persistActiveWorkout();
@@ -821,10 +883,13 @@ async function finishWorkout() {
     alert('Log at least one set before finishing.');
     return;
   }
+  // Recorded duration excludes paused time, so stepping away mid-workout
+  // doesn't inflate it - endedAt - startedAt is the only thing any duration
+  // display ever computes, so adjusting it here is enough everywhere.
   const payload = {
     name: state.activeWorkout.name || 'Workout',
     startedAt: state.activeWorkout.startedAt,
-    endedAt: Date.now(),
+    endedAt: Date.now() - totalPausedMs(state.activeWorkout),
     date: todayStr(),
     exercises: state.activeWorkout.exercises,
     notes: state.activeWorkout.notes || ''
@@ -1484,6 +1549,8 @@ function renderRoutineEditor() {
     const exIdx = Number(row.dataset.ex);
     const setIdx = Number(row.dataset.set);
     const set = state.routineEditing.exercises[exIdx].sets[setIdx];
+    selectContentsOnFocus(row.querySelector('.set-weight-input'));
+    selectContentsOnFocus(row.querySelector('.set-reps-input'));
     row.querySelector('.set-weight-input').addEventListener('input', e => { set.weight = Number(e.target.value) || 0; });
     row.querySelector('.set-reps-input').addEventListener('input', e => { set.reps = Number(e.target.value) || 0; });
     row.querySelector('.set-remove').addEventListener('click', () => {
