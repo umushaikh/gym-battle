@@ -438,6 +438,43 @@ canvas { width: 100%; }
 .trend-badge.flat { color: var(--muted); background: rgba(148,163,184,0.15); }
 .analytics-tip { color: var(--muted); font-size: 0.78rem; margin-top: 6px; line-height: 1.4; }
 
+/* Charts */
+.chart-row { display: flex; gap: 12px; margin: 10px 0 18px; }
+.chart-col { flex: 1; min-width: 0; }
+.chart-col .subheading { margin: 0 0 6px; }
+
+/* Finish-workout celebration */
+.celebrate-modal { align-items: center; z-index: 75; }
+.celebrate-card {
+  background: var(--surface);
+  border-radius: 18px;
+  padding: 36px 24px 28px;
+  text-align: center;
+  max-width: 320px;
+  width: 88%;
+  position: relative;
+  overflow: hidden;
+}
+.celebrate-emoji { font-size: 3rem; line-height: 1; margin-bottom: 10px; }
+.celebrate-card h2 { margin: 4px 0 8px; font-size: 1.2rem; }
+.celebrate-card p { color: var(--muted); margin: 0 0 22px; font-size: 0.9rem; }
+.celebrate-card .primary-btn { margin-top: 0; }
+.confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.confetti-piece {
+  position: absolute;
+  top: -20px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  animation-name: confetti-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+@keyframes confetti-fall {
+  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(360px) rotate(360deg); opacity: 0; }
+}
+
 /* Rest timer, sits directly above the tab bar */
 .rest-bar {
   position: fixed;

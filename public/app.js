@@ -493,6 +493,9 @@ function bindEvents() {
   document.getElementById('picker-new-save').addEventListener('click', createExerciseFromPicker);
 
   document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
+  document.getElementById('celebrate-close-btn').addEventListener('click', () => {
+    document.getElementById('celebrate-modal').classList.add('hidden');
+  });
 
   document.getElementById('close-share-btn').addEventListener('click', () => {
     document.getElementById('share-modal').classList.add('hidden');
@@ -977,6 +980,36 @@ async function finishWorkout() {
   persistActiveWorkout();
   renderWorkoutTab();
   switchTab('history');
+  showCelebration();
+}
+
+// ---------- Finish-workout celebration ----------
+async function showCelebration() {
+  const workouts = await db.getWorkouts();
+  const count = workouts.length;
+  document.getElementById('celebrate-sub').textContent = count === 1
+    ? "That's your first logged workout - nice start!"
+    : `That's ${count.toLocaleString()} workouts logged. Keep it up!`;
+  launchConfetti();
+  document.getElementById('celebrate-modal').classList.remove('hidden');
+}
+
+function launchConfetti() {
+  const layer = document.getElementById('confetti-layer');
+  const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#f472b6', '#a78bfa'];
+  // Fresh nodes each time rather than reusing old ones, since replaying a
+  // CSS animation on an existing element needs a reflow trick - a clean
+  // element just plays it once, naturally, from the start.
+  layer.innerHTML = '';
+  for (let i = 0; i < 28; i++) {
+    const piece = document.createElement('span');
+    piece.className = 'confetti-piece';
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[i % colors.length];
+    piece.style.animationDelay = `${(Math.random() * 0.4).toFixed(2)}s`;
+    piece.style.animationDuration = `${(1.2 + Math.random() * 0.9).toFixed(2)}s`;
+    layer.appendChild(piece);
+  }
 }
 
 // ---------- Exercise picker ----------
@@ -1618,6 +1651,69 @@ function weekVolumeStats(workouts) {
   return { thisWeek, lastWeek, volumeChangePct, thisWeekCount, avgPerWeek };
 }
 
+// Buckets workouts into calendar weeks, oldest first, ending with the
+// current week - the shape both graphs on the Stats tab plot directly.
+function weeklyBuckets(workouts, weeks) {
+  const buckets = Array.from({ length: weeks }, () => ({ volume: 0, count: 0 }));
+  workouts.forEach(w => {
+    const weekIndex = Math.floor(daysAgo(w.date) / 7);
+    if (weekIndex >= 0 && weekIndex < weeks) {
+      const bucket = buckets[weeks - 1 - weekIndex];
+      bucket.volume += workoutVolume(w);
+      bucket.count += 1;
+    }
+  });
+  return buckets;
+}
+
+// A small bar chart shared by the volume and frequency graphs - only the
+// values and a couple of display options differ between them.
+function drawBarChart(canvasId, values, opts) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 150;
+  const height = 110;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const color = (opts && opts.color) || '#22c55e';
+  const fmt = (opts && opts.fmt) || (v => `${Math.round(v)}`);
+  const maxVal = Math.max(1, ...values);
+  const padding = { left: 4, right: 4, top: 16, bottom: 16 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+  const gap = 4;
+  const barW = Math.max(1, (plotW - gap * (values.length - 1)) / values.length);
+
+  values.forEach((v, i) => {
+    const barH = (v / maxVal) * plotH;
+    const x = padding.left + i * (barW + gap);
+    const y = height - padding.bottom - barH;
+    ctx.fillStyle = i === values.length - 1 ? color : `${color}80`;
+    ctx.fillRect(x, y, barW, v > 0 ? Math.max(barH, 2) : 0);
+  });
+
+  ctx.strokeStyle = '#334155';
+  ctx.beginPath();
+  ctx.moveTo(padding.left, height - padding.bottom);
+  ctx.lineTo(width - padding.right, height - padding.bottom);
+  ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '9px sans-serif';
+  const last = values[values.length - 1];
+  ctx.textAlign = 'center';
+  ctx.fillText(fmt(last), width - padding.right - barW / 2, padding.top - 5);
+  ctx.textAlign = 'left';
+  ctx.fillText(`${values.length}w ago`, padding.left, height - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText('This wk', width - padding.right, height - 4);
+}
+
 // Reduces a history of sessions (oldest first) down to one "best" value per
 // session. For strength that's the set with the highest estimated 1RM,
 // ignoring warm-ups the same way every other record in the app does; for
@@ -1775,6 +1871,7 @@ async function renderAnalyticsTab() {
   }
 
   const stats = weekVolumeStats(workouts);
+  const buckets = weeklyBuckets(workouts, 8);
   const rows = await buildExerciseAnalytics();
   // Sorting once and slicing both ends keeps "best" and "needs attention"
   // consistent with each other instead of computed by separate passes.
@@ -1796,6 +1893,17 @@ async function renderAnalyticsTab() {
       </div>
     </div>
 
+    <div class="chart-row">
+      <div class="chart-col">
+        <div class="subheading">Volume · 8 weeks</div>
+        <canvas id="volume-chart" height="110"></canvas>
+      </div>
+      <div class="chart-col">
+        <div class="subheading">Workouts · 8 weeks</div>
+        <canvas id="frequency-chart" height="110"></canvas>
+      </div>
+    </div>
+
     <h3 class="subheading">Best progress</h3>
     <div class="list">${best.length ? best.map(analyticsRowHtml).join('') : '<div class="empty-state">Log a couple more sessions on a lift to see it climb here.</div>'}</div>
 
@@ -1806,6 +1914,9 @@ async function renderAnalyticsTab() {
     <h3 class="subheading">Still gathering data</h3>
     <div class="list">${newLifts.map(analyticsRowHtml).join('')}</div>` : ''}
   `;
+
+  drawBarChart('volume-chart', buckets.map(b => b.volume), { color: '#22c55e', fmt: v => `${Math.round(v).toLocaleString()}kg` });
+  drawBarChart('frequency-chart', buckets.map(b => b.count), { color: '#3b82f6', fmt: v => `${v}` });
 
   bindAnalyticsRows(container, rows);
 }
