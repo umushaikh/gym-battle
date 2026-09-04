@@ -15,6 +15,7 @@ const state = {
   lastCache: {},          // exerciseId -> { sets, date } | null
   pickerTarget: null,     // 'workout' | 'routine'
   pickerSelection: [],    // exercise ids ticked in the picker
+  pickerCategoryFilter: '',
   routineEditing: null,   // { id?, name, exercises: [{exerciseId, name, sets:[{reps,weight}]}] }
   timerInterval: null,
   rest: null,              // { endsAt } while resting between sets
@@ -1023,10 +1024,27 @@ function launchConfetti() {
 function openPicker(target) {
   state.pickerTarget = target;
   state.pickerSelection = [];
+  state.pickerCategoryFilter = '';
   document.getElementById('picker-search').value = '';
   hidePickerNewForm();
+  renderPickerCategoryFilters();
   renderPickerList();
   document.getElementById('exercise-picker').classList.remove('hidden');
+}
+
+function renderPickerCategoryFilters() {
+  const categories = ['', ...new Set(state.exercises.map(e => e.category))];
+  const container = document.getElementById('picker-category-filters');
+  container.innerHTML = categories.map(c => `
+    <button class="chip ${state.pickerCategoryFilter === c ? 'active' : ''}" data-cat="${escapeAttr(c)}">${c ? escapeHtml(c) : 'All'}</button>
+  `).join('');
+  container.querySelectorAll('.chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.pickerCategoryFilter = btn.dataset.cat;
+      renderPickerCategoryFilters();
+      renderPickerList();
+    });
+  });
 }
 
 function closePicker() {
@@ -1037,6 +1055,7 @@ function closePicker() {
 function hidePickerNewForm() {
   document.getElementById('picker-new-form').classList.add('hidden');
   document.getElementById('picker-list').classList.remove('hidden');
+  document.getElementById('picker-category-filters').classList.remove('hidden');
   document.getElementById('picker-new-btn').textContent = '+ New exercise';
   renderPickerAddButton();
   document.getElementById('picker-new-name').value = '';
@@ -1059,6 +1078,7 @@ function togglePickerNewForm() {
   // The sheet is only so tall; hide the browse list while creating so the
   // form's save button can't get clipped off the bottom.
   document.getElementById('picker-list').classList.add('hidden');
+  document.getElementById('picker-category-filters').classList.add('hidden');
   document.getElementById('picker-actions').classList.add('hidden');
   document.getElementById('picker-new-btn').textContent = 'Cancel';
   document.getElementById('picker-new-name').focus();
@@ -1090,7 +1110,10 @@ async function createExerciseFromPicker() {
 
 function renderPickerList() {
   const query = document.getElementById('picker-search').value.trim().toLowerCase();
-  const matches = state.exercises.filter(e => e.name.toLowerCase().includes(query));
+  const matches = state.exercises.filter(e =>
+    e.name.toLowerCase().includes(query) &&
+    (!state.pickerCategoryFilter || e.category === state.pickerCategoryFilter)
+  );
   const container = document.getElementById('picker-list');
 
   const exactMatch = state.exercises.some(e => e.name.toLowerCase() === query);
