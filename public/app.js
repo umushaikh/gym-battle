@@ -653,7 +653,14 @@ function startFromRoutine(routine) {
       };
     })
   };
-  state.activeWorkout.exercises.forEach(e => warmLastCache(e.exerciseId).then(renderActiveWorkout));
+  // Templates don't carry their own notes, so once each exercise's history
+  // loads, backfill whatever note was left on it last time.
+  state.activeWorkout.exercises.forEach(e => warmLastCache(e.exerciseId).then(() => {
+    const last = state.lastCache[e.exerciseId];
+    if (last && last.notes && !e.notes) e.notes = last.notes;
+    persistActiveWorkout();
+    renderActiveWorkout();
+  }));
   persistActiveWorkout();
   renderWorkoutTab();
 }
@@ -1190,7 +1197,9 @@ async function addExerciseToTarget(exercise, opts) {
     state.activeWorkout.exercises.push({
       exerciseId: exercise.id,
       name: exercise.name,
-      notes: '',
+      // Carries over whatever was jotted down last time (machine settings,
+      // grip width, cues) so it doesn't have to be retyped every session.
+      notes: last && last.notes ? last.notes : '',
       sets: [initialSet]
     });
     persistActiveWorkout();

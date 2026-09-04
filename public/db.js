@@ -103,7 +103,7 @@ const db = {
     const store = loadDb();
     for (const w of workoutsDesc(store)) {
       const entry = w.exercises.find(e => e.exerciseId === exerciseId);
-      if (entry) return { sets: entry.sets, date: w.date };
+      if (entry) return { sets: entry.sets, date: w.date, notes: entry.notes || '' };
     }
     return null;
   },
