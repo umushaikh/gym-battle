@@ -358,6 +358,9 @@ document.addEventListener('visibilitychange', () => {
 // ---------- Backup & restore ----------
 async function openDataModal() {
   document.getElementById('rest-default-input').value = getDefaultRest();
+  const profile = await db.getProfile();
+  document.getElementById('profile-bodyweight-input').value = profile.bodyweightKg || '';
+  document.getElementById('profile-sex-input').value = profile.sex || '';
   const data = await db.exportData();
   document.getElementById('data-summary').innerHTML = `
     <div class="pr-row"><span>Workouts saved</span><strong>${data.workouts.length}</strong></div>
@@ -519,6 +522,13 @@ function bindEvents() {
   });
   document.getElementById('rest-default-input').addEventListener('change', e => {
     e.target.value = getDefaultRest();
+  });
+  document.getElementById('profile-bodyweight-input').addEventListener('input', e => {
+    const kg = Number(e.target.value);
+    db.updateProfile({ bodyweightKg: kg > 0 ? kg : null });
+  });
+  document.getElementById('profile-sex-input').addEventListener('change', e => {
+    db.updateProfile({ sex: e.target.value || null });
   });
 
   document.getElementById('export-btn').addEventListener('click', exportBackupFile);
@@ -1870,6 +1880,114 @@ function trendBadge(changePct) {
   return '<span class="trend-badge flat">— 0%</span>';
 }
 
+// ---------- Strength standards ("how you compare") ----------
+// Rough, widely-cited strength-standard ratios (estimated 1RM as a multiple
+// of bodyweight) for the four classic barbell lifts, by sex. These are a
+// common simplified population benchmark - not a personalized or perfectly
+// precise measurement, since real standards also shift a bit with
+// bodyweight itself - but they're a solid "what should I aim for" guide.
+const STRENGTH_STANDARDS = {
+  'Squat': {
+    male: [0.75, 1.25, 1.5, 1.75, 2.25],
+    female: [0.5, 0.75, 1.0, 1.5, 1.75]
+  },
+  'Bench Press': {
+    male: [0.5, 0.75, 1.0, 1.25, 1.75],
+    female: [0.27, 0.5, 0.65, 0.8, 1.1]
+  },
+  'Deadlift': {
+    male: [1.0, 1.5, 1.75, 2.25, 2.75],
+    female: [0.65, 1.0, 1.25, 1.75, 2.15]
+  },
+  'Overhead Press': {
+    male: [0.35, 0.55, 0.75, 0.9, 1.2],
+    female: [0.2, 0.35, 0.5, 0.6, 0.8]
+  }
+};
+const STRENGTH_LEVELS = ['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite'];
+
+function strengthStanding(liftName, bestE1rm, bodyweightKg, sex) {
+  const table = STRENGTH_STANDARDS[liftName];
+  if (!table || !bodyweightKg || !sex || !table[sex]) return null;
+  const ratios = table[sex];
+  const ratio = bestE1rm / bodyweightKg;
+  let levelIdx = -1;
+  ratios.forEach((r, i) => { if (ratio >= r) levelIdx = i; });
+  const level = levelIdx === -1 ? 'Below beginner' : STRENGTH_LEVELS[levelIdx];
+  const nextIdx = levelIdx + 1;
+  const hasNext = nextIdx < ratios.length;
+  return {
+    ratio,
+    level,
+    bestE1rm,
+    nextLevel: hasNext ? STRENGTH_LEVELS[nextIdx] : null,
+    nextTargetKg: hasNext ? Math.round(ratios[nextIdx] * bodyweightKg) : null
+  };
+}
+
+function levelBadgeClass(level) {
+  return level.toLowerCase().replace(/\s+/g, '-');
+}
+
+function standardsRowHtml(liftName, standing) {
+  const pct = standing.nextTargetKg
+    ? Math.max(4, Math.min(100, Math.round((standing.bestE1rm / standing.nextTargetKg) * 100)))
+    : 100;
+  const tip = standing.nextTargetKg
+    ? `Est. 1RM ${Math.round(standing.bestE1rm)}kg now - reach about ${standing.nextTargetKg}kg to hit ${standing.nextLevel}.`
+    : `You're at the top tracked tier (Elite) for this lift - keep pushing your own numbers.`;
+  return `
+    <div class="entry standards-row">
+      <div class="entry-main">
+        <div class="entry-title">${escapeHtml(liftName)} <span class="level-badge ${levelBadgeClass(standing.level)}">${standing.level}</span></div>
+        <div class="entry-sub">${standing.ratio.toFixed(2)}× bodyweight</div>
+        <div class="standards-track"><div class="standards-fill" style="width:${pct}%"></div></div>
+        <div class="analytics-tip">${tip}</div>
+      </div>
+    </div>
+  `;
+}
+
+async function renderStrengthStandards() {
+  const profile = await db.getProfile();
+  if (!profile.bodyweightKg || !profile.sex) {
+    return `
+      <h3 class="subheading">How you compare</h3>
+      <div class="card">
+        <p class="hint-text" style="margin:0 0 12px;">Set your bodyweight and sex in Settings to see how your lifts stack up against published strength standards, and what to aim for next.</p>
+        <button id="standards-open-settings-btn" class="secondary-btn full">Set bodyweight</button>
+      </div>
+    `;
+  }
+
+  const rows = [];
+  for (const liftName of Object.keys(STRENGTH_STANDARDS)) {
+    const exercise = state.exercises.find(e => e.name === liftName);
+    if (!exercise) continue;
+    const sessions = await db.getExerciseHistory(exercise.id);
+    let bestE1rm = 0;
+    sessions.forEach(s => s.sets.forEach(set => {
+      if (set.warmup) return;
+      bestE1rm = Math.max(bestE1rm, e1rm(set.reps, set.weight));
+    }));
+    if (bestE1rm === 0) continue;
+    const standing = strengthStanding(liftName, bestE1rm, profile.bodyweightKg, profile.sex);
+    if (standing) rows.push(standardsRowHtml(liftName, standing));
+  }
+
+  if (rows.length === 0) {
+    return `
+      <h3 class="subheading">How you compare</h3>
+      <div class="empty-state">Log a Squat, Bench Press, Deadlift, or Overhead Press to see how you compare.</div>
+    `;
+  }
+
+  return `
+    <h3 class="subheading">How you compare</h3>
+    <div class="list">${rows.join('')}</div>
+  `;
+}
+
 function analyticsRowHtml(row) {
   const sub = row.exercise.isCardio
     ? `Last: ${row.last.best.km}km${row.last.best.calories ? ` · ${row.last.best.calories} cal` : ''}`
@@ -1904,6 +2022,7 @@ async function renderAnalyticsTab() {
 
   const stats = weekVolumeStats(workouts);
   const buckets = weeklyBuckets(workouts, 8);
+  const standardsHtml = await renderStrengthStandards();
   const rows = await buildExerciseAnalytics();
   // Sorting once and slicing both ends keeps "best" and "needs attention"
   // consistent with each other instead of computed by separate passes.
@@ -1936,6 +2055,8 @@ async function renderAnalyticsTab() {
       </div>
     </div>
 
+    ${standardsHtml}
+
     <h3 class="subheading">Best progress</h3>
     <div class="list">${best.length ? best.map(analyticsRowHtml).join('') : '<div class="empty-state">Log a couple more sessions on a lift to see it climb here.</div>'}</div>
 
@@ -1951,6 +2072,14 @@ async function renderAnalyticsTab() {
   drawBarChart('frequency-chart', buckets.map(b => b.count), { color: '#3b82f6', fmt: v => `${v}` });
 
   bindAnalyticsRows(container, rows);
+
+  const settingsBtn = document.getElementById('standards-open-settings-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', async () => {
+      await openDataModal();
+      document.getElementById('profile-bodyweight-input').focus();
+    });
+  }
 }
 
 // ---------- Routine editor ----------

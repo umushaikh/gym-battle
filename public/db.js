@@ -39,6 +39,7 @@ function loadDb() {
       if (!parsed.exercises) parsed.exercises = [];
       if (!parsed.workouts) parsed.workouts = [];
       if (!parsed.routines) parsed.routines = [];
+      if (!parsed.profile) parsed.profile = { bodyweightKg: null, sex: null };
       if (migrateCardioExercises(parsed)) saveDb(parsed);
       return parsed;
     } catch {
@@ -48,7 +49,8 @@ function loadDb() {
   const seeded = {
     exercises: DEFAULT_EXERCISES.map(e => ({ id: uid(), ...e })),
     workouts: [],
-    routines: []
+    routines: [],
+    profile: { bodyweightKg: null, sex: null }
   };
   saveDb(seeded);
   return seeded;
@@ -175,7 +177,8 @@ const db = {
       exportedAt: new Date().toISOString(),
       exercises: store.exercises,
       workouts: store.workouts,
-      routines: store.routines
+      routines: store.routines,
+      profile: store.profile
     };
   },
 
@@ -185,12 +188,26 @@ const db = {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('That file is not a Coach Umer backup.');
     }
-    const { exercises, workouts, routines } = payload;
+    const { exercises, workouts, routines, profile } = payload;
     if (!Array.isArray(exercises) || !Array.isArray(workouts) || !Array.isArray(routines)) {
       throw new Error('That file is missing workout data, so it is not a Coach Umer backup.');
     }
-    saveDb({ exercises, workouts, routines });
+    // Backups made before profile/bodyweight tracking existed won't have
+    // this key at all, so it needs a default rather than importing as undefined.
+    saveDb({ exercises, workouts, routines, profile: profile || { bodyweightKg: null, sex: null } });
     return { exercises: exercises.length, workouts: workouts.length, routines: routines.length };
+  },
+
+  async getProfile() {
+    return loadDb().profile;
+  },
+
+  async updateProfile({ bodyweightKg, sex }) {
+    const store = loadDb();
+    if (bodyweightKg !== undefined) store.profile.bodyweightKg = bodyweightKg;
+    if (sex !== undefined) store.profile.sex = sex;
+    saveDb(store);
+    return store.profile;
   },
 
   async getRoutines() {

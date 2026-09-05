@@ -180,6 +180,22 @@
       browser data or move to a new phone, they go with it unless you keep a backup.</p>
       <div id="data-summary" class="pr-cell"></div>
 
+      <h3 class="subheading">Profile</h3>
+      <p class="hint-text">Used on the Stats tab to compare your lifts against published
+      strength standards for your bodyweight.</p>
+      <div class="row">
+        <label>Bodyweight (kg)
+          <input type="number" id="profile-bodyweight-input" min="0" max="400" step="0.5" placeholder="e.g. 80" />
+        </label>
+        <label>Sex
+          <select id="profile-sex-input">
+            <option value="">Not set</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </label>
+      </div>
+
       <h3 class="subheading">Rest timer</h3>
       <label>Seconds of rest after ticking off a set (0 turns it off)
         <input type="number" id="rest-default-input" min="0" max="900" step="15" />
