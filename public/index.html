@@ -144,6 +144,7 @@
       <h2 id="detail-title">Detail</h2>
       <div class="modal-header-actions">
         <button id="edit-exercise-btn" class="link-btn hidden">Edit</button>
+        <button id="edit-workout-btn" class="link-btn hidden">Edit</button>
         <button id="share-detail-btn" class="link-btn hidden">Share</button>
         <button id="close-detail-btn" class="link-btn">Close</button>
       </div>
@@ -166,6 +167,29 @@
       <button id="routine-add-exercise-btn" class="secondary-btn full">+ Add Exercise</button>
     </div>
     <button id="save-routine-btn" class="primary-btn">Save Template</button>
+  </div>
+</div>
+
+<div id="workout-edit-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>Edit Workout</h2>
+      <button id="close-workout-edit-btn" class="link-btn">Close</button>
+    </div>
+    <div class="scrollable">
+      <label>Name
+        <input id="workout-edit-name-input" placeholder="e.g. Push Day" />
+      </label>
+      <label>Date
+        <input type="date" id="workout-edit-date-input" />
+      </label>
+      <div id="workout-edit-exercises" class="active-exercises"></div>
+      <button id="workout-edit-add-exercise-btn" class="secondary-btn full">+ Add Exercise</button>
+      <label>Notes
+        <textarea id="workout-edit-notes-input" placeholder="How did it feel? Anything to remember for next time..."></textarea>
+      </label>
+    </div>
+    <button id="save-workout-edit-btn" class="primary-btn">Save Changes</button>
   </div>
 </div>
 

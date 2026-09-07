@@ -64,6 +64,28 @@ function workoutsDesc(store) {
   return [...store.workouts].sort((a, b) => b.endedAt - a.endedAt);
 }
 
+// Shared by addWorkout and updateWorkout: drops sets with nothing logged
+// and coerces the rest to real numbers, so a workout is never saved (or
+// re-saved after an edit) with stray blank/string set values.
+function cleanWorkoutExercises(exercises, cardioIds) {
+  return exercises
+    .map(e => {
+      const cardio = cardioIds.has(e.exerciseId);
+      return {
+        exerciseId: e.exerciseId,
+        name: e.name,
+        notes: e.notes || '',
+        linkedToPrev: !!e.linkedToPrev,
+        sets: (e.sets || [])
+          .filter(s => cardio ? (Number(s.km) > 0 || Number(s.calories) > 0) : (Number(s.reps) > 0 || Number(s.weight) > 0))
+          .map(s => cardio
+            ? { km: Number(s.km) || 0, calories: Number(s.calories) || 0 }
+            : { reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, warmup: !!s.warmup })
+      };
+    })
+    .filter(e => e.sets.length > 0);
+}
+
 const db = {
   async getExercises() {
     return loadDb().exercises;
@@ -127,22 +149,7 @@ const db = {
   async addWorkout({ name, startedAt, endedAt, date, exercises, notes }) {
     const store = loadDb();
     const cardioIds = new Set(store.exercises.filter(e => e.isCardio).map(e => e.id));
-    const cleanExercises = exercises
-      .map(e => {
-        const cardio = cardioIds.has(e.exerciseId);
-        return {
-          exerciseId: e.exerciseId,
-          name: e.name,
-          notes: e.notes || '',
-          linkedToPrev: !!e.linkedToPrev,
-          sets: (e.sets || [])
-            .filter(s => cardio ? (Number(s.km) > 0 || Number(s.calories) > 0) : (Number(s.reps) > 0 || Number(s.weight) > 0))
-            .map(s => cardio
-              ? { km: Number(s.km) || 0, calories: Number(s.calories) || 0 }
-              : { reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, warmup: !!s.warmup })
-        };
-      })
-      .filter(e => e.sets.length > 0);
+    const cleanExercises = cleanWorkoutExercises(exercises, cardioIds);
     if (cleanExercises.length === 0) {
       throw new Error('At least one exercise with a logged set is required');
     }
@@ -156,6 +163,26 @@ const db = {
       notes: notes || ''
     };
     store.workouts.push(workout);
+    saveDb(store);
+    return workout;
+  },
+
+  // Edits a past workout in place: name, date, notes, and its exercises/sets.
+  // startedAt/endedAt (and so its recorded duration) are left untouched -
+  // this is about fixing what was logged, not redoing the workout.
+  async updateWorkout(workoutId, { name, date, notes, exercises }) {
+    const store = loadDb();
+    const workout = store.workouts.find(w => w.id === workoutId);
+    if (!workout) return null;
+    const cardioIds = new Set(store.exercises.filter(e => e.isCardio).map(e => e.id));
+    const cleanExercises = cleanWorkoutExercises(exercises, cardioIds);
+    if (cleanExercises.length === 0) {
+      throw new Error('At least one exercise with a logged set is required');
+    }
+    workout.name = (name || '').trim() || 'Workout';
+    workout.date = date;
+    workout.notes = notes || '';
+    workout.exercises = cleanExercises;
     saveDb(store);
     return workout;
   },

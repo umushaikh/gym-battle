@@ -13,10 +13,11 @@ const state = {
   exercises: [],
   activeWorkout: null,   // { name, startedAt, notes, exercises: [{exerciseId, name, sets:[{reps,weight,warmup,completed}]}] }
   lastCache: {},          // exerciseId -> { sets, date } | null
-  pickerTarget: null,     // 'workout' | 'routine'
+  pickerTarget: null,     // 'workout' | 'routine' | 'workout-edit'
   pickerSelection: [],    // exercise ids ticked in the picker
   pickerCategoryFilter: '',
   routineEditing: null,   // { id?, name, exercises: [{exerciseId, name, sets:[{reps,weight}]}] }
+  workoutEditing: null,   // deep copy of a past workout while its history entry is being edited
   timerInterval: null,
   rest: null,              // { endsAt } while resting between sets
   restInterval: null,
@@ -542,6 +543,10 @@ function bindEvents() {
   document.getElementById('routine-name-input').addEventListener('input', e => {
     if (state.routineEditing) state.routineEditing.name = e.target.value;
   });
+
+  document.getElementById('close-workout-edit-btn').addEventListener('click', closeWorkoutEditor);
+  document.getElementById('workout-edit-add-exercise-btn').addEventListener('click', () => openPicker('workout-edit'));
+  document.getElementById('save-workout-edit-btn').addEventListener('click', saveWorkoutEdit);
 
   document.getElementById('exercise-search').addEventListener('input', renderLibraryList);
   document.getElementById('new-exercise-btn').addEventListener('click', () => {
@@ -1180,9 +1185,9 @@ function renderPickerAddButton() {
 }
 
 function pickerTargetList() {
-  return state.pickerTarget === 'routine'
-    ? state.routineEditing.exercises
-    : state.activeWorkout.exercises;
+  if (state.pickerTarget === 'routine') return state.routineEditing.exercises;
+  if (state.pickerTarget === 'workout-edit') return state.workoutEditing.exercises;
+  return state.activeWorkout.exercises;
 }
 
 async function addPickedExercises(asSuperset) {
@@ -1205,6 +1210,8 @@ async function addPickedExercises(asSuperset) {
     for (let i = startedAt + 1; i < list.length; i++) list[i].linkedToPrev = true;
     if (state.pickerTarget === 'routine') {
       renderRoutineEditor();
+    } else if (state.pickerTarget === 'workout-edit') {
+      renderWorkoutEditor();
     } else {
       persistActiveWorkout();
       renderActiveWorkout();
@@ -1251,6 +1258,19 @@ async function addExerciseToTarget(exercise, opts) {
       sets: exercise.isCardio ? [{ km: 0, calories: 0 }] : [{ reps: 8, weight: 0 }, { reps: 8, weight: 0 }, { reps: 8, weight: 0 }]
     });
     renderRoutineEditor();
+  } else if (state.pickerTarget === 'workout-edit') {
+    if (state.workoutEditing.exercises.some(e => e.exerciseId === exercise.id)) {
+      if (!keepOpen) closePicker();
+      return;
+    }
+    state.workoutEditing.exercises.push({
+      exerciseId: exercise.id,
+      name: exercise.name,
+      notes: '',
+      linkedToPrev: false,
+      sets: [exercise.isCardio ? { km: '', calories: '' } : { reps: '', weight: '', warmup: false }]
+    });
+    renderWorkoutEditor();
   }
   if (!keepOpen) closePicker();
 }
@@ -1297,6 +1317,9 @@ function openWorkoutDetail(workout) {
   const shareBtn = document.getElementById('share-detail-btn');
   shareBtn.classList.remove('hidden');
   shareBtn.onclick = () => shareWorkout(workout);
+  const editBtn = document.getElementById('edit-workout-btn');
+  editBtn.classList.remove('hidden');
+  editBtn.onclick = () => openWorkoutEditor(workout);
   document.getElementById('detail-body').innerHTML = `
     <div class="entry-sub" style="margin-bottom:12px;">${workout.date} · ${formatDuration(workout.endedAt - workout.startedAt)} · vol ${Math.round(workoutVolume(workout)).toLocaleString()}</div>
     ${workout.exercises.map((e, i) => `
@@ -1353,6 +1376,7 @@ function closeDetail() {
   document.getElementById('detail-modal').classList.add('hidden');
   document.getElementById('share-detail-btn').classList.add('hidden');
   document.getElementById('edit-exercise-btn').classList.add('hidden');
+  document.getElementById('edit-workout-btn').classList.add('hidden');
 }
 
 function openExerciseEditor(exercise, context) {
@@ -1527,6 +1551,7 @@ async function openExerciseDetail(exercise) {
   const sessions = await db.getExerciseHistory(exercise.id);
   document.getElementById('detail-title').textContent = exercise.name;
   document.getElementById('share-detail-btn').classList.add('hidden');
+  document.getElementById('edit-workout-btn').classList.add('hidden');
   const editBtn = document.getElementById('edit-exercise-btn');
   editBtn.classList.remove('hidden');
   editBtn.onclick = () => openExerciseEditor(exercise);
@@ -2087,6 +2112,182 @@ async function renderAnalyticsTab() {
       document.getElementById('profile-bodyweight-input').focus();
     });
   }
+}
+
+// ---------- Workout editor (edit a past workout from History) ----------
+function openWorkoutEditor(workout) {
+  state.workoutEditing = JSON.parse(JSON.stringify(workout));
+  document.getElementById('workout-edit-name-input').value = state.workoutEditing.name;
+  document.getElementById('workout-edit-date-input').value = state.workoutEditing.date;
+  document.getElementById('workout-edit-notes-input').value = state.workoutEditing.notes || '';
+  renderWorkoutEditor();
+  closeDetail();
+  document.getElementById('workout-edit-modal').classList.remove('hidden');
+}
+
+function closeWorkoutEditor() {
+  document.getElementById('workout-edit-modal').classList.add('hidden');
+  state.workoutEditing = null;
+}
+
+function renderWorkoutEditor() {
+  const container = document.getElementById('workout-edit-exercises');
+  if (state.workoutEditing.exercises.length === 0) {
+    container.innerHTML = `<div class="empty-state">Add at least one exercise.</div>`;
+    return;
+  }
+  const ssGroups = computeSupersets(state.workoutEditing.exercises);
+  container.innerHTML = state.workoutEditing.exercises.map((ex, exIdx) => {
+    const ss = ssGroups[exIdx];
+    const cardio = isCardioExercise(ex.exerciseId);
+    let workingCount = 0;
+    const rows = ex.sets.map((set, setIdx) => {
+      if (cardio) {
+        return `
+          <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
+            <span class="set-num">${setIdx + 1}</span>
+            <input type="number" min="0" step="0.01" class="set-km-input" placeholder="km" value="${set.km}" />
+            <input type="number" min="0" class="set-cal-input" placeholder="cal" value="${set.calories}" />
+            <button class="set-remove" title="remove set">✕</button>
+          </div>
+        `;
+      }
+      const label = set.warmup ? 'W' : String(++workingCount);
+      return `
+        <div class="set-row-table target" data-ex="${exIdx}" data-set="${setIdx}">
+          <button class="set-num ${set.warmup ? 'warmup' : ''}" title="${set.warmup ? 'Warm-up set. Tap for a working set' : 'Tap to mark as a warm-up set'}">${label}</button>
+          <input type="number" min="0" step="0.5" class="set-weight-input" placeholder="kg" value="${set.weight}" />
+          <input type="number" min="0" class="set-reps-input" placeholder="reps" value="${set.reps}" />
+          <button class="set-remove" title="remove set">✕</button>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="exercise-block ${ss !== null ? 'in-superset' : ''}" data-ex="${exIdx}" data-ss="${ss === null ? '' : ss % 4}">
+        <div class="exercise-block-header">
+          <button class="drag-handle" title="Drag to reorder" aria-label="Reorder ${escapeAttr(ex.name)}">≡</button>
+          <strong>${escapeHtml(ex.name)}</strong>
+          ${exIdx > 0 ? `<button class="ss-btn ${ex.linkedToPrev ? 'on' : ''}" data-ex="${exIdx}" title="${ex.linkedToPrev ? 'Break the superset' : 'Superset with the exercise above'}">⇄</button>` : ''}
+          <button class="icon-btn remove-exercise-btn" data-ex="${exIdx}" title="remove exercise">🗑</button>
+        </div>
+        ${ss !== null ? '<div class="ss-tag">Superset</div>' : ''}
+        <div class="set-table target">
+          <div class="set-table-head">${cardio
+            ? '<span>Set</span><span>Km</span><span>Cal</span><span></span>'
+            : '<span>Set</span><span>Weight</span><span>Reps</span><span></span>'}</div>
+          ${rows}
+        </div>
+        <button class="secondary-btn small add-set-row-btn" data-ex="${exIdx}">+ Add set</button>
+        <input type="text" class="exercise-note-input" data-ex="${exIdx}"
+               placeholder="Add a note for ${escapeAttr(ex.name)}..." value="${escapeAttr(ex.notes || '')}" />
+      </div>
+    `;
+  }).join('');
+
+  bindWorkoutEditorEvents();
+}
+
+function bindWorkoutEditorEvents() {
+  const container = document.getElementById('workout-edit-exercises');
+
+  container.querySelectorAll('.remove-exercise-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.workoutEditing.exercises.splice(Number(btn.dataset.ex), 1);
+      renderWorkoutEditor();
+    });
+  });
+
+  container.querySelectorAll('.ss-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ex = state.workoutEditing.exercises[Number(btn.dataset.ex)];
+      ex.linkedToPrev = !ex.linkedToPrev;
+      renderWorkoutEditor();
+    });
+  });
+
+  container.querySelectorAll('.add-set-row-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ex = state.workoutEditing.exercises[Number(btn.dataset.ex)];
+      const lastSet = ex.sets[ex.sets.length - 1];
+      if (isCardioExercise(ex.exerciseId)) {
+        ex.sets.push({ km: lastSet ? lastSet.km : '', calories: lastSet ? lastSet.calories : '' });
+      } else {
+        ex.sets.push({ reps: lastSet ? lastSet.reps : '', weight: lastSet ? lastSet.weight : '', warmup: false });
+      }
+      renderWorkoutEditor();
+    });
+  });
+
+  container.querySelectorAll('.exercise-note-input').forEach(input => {
+    input.addEventListener('input', e => {
+      state.workoutEditing.exercises[Number(input.dataset.ex)].notes = e.target.value;
+    });
+  });
+
+  container.querySelectorAll('.set-row-table').forEach(row => {
+    const exIdx = Number(row.dataset.ex);
+    const setIdx = Number(row.dataset.set);
+    const exObj = state.workoutEditing.exercises[exIdx];
+    const set = exObj.sets[setIdx];
+
+    if (isCardioExercise(exObj.exerciseId)) {
+      selectContentsOnFocus(row.querySelector('.set-km-input'));
+      selectContentsOnFocus(row.querySelector('.set-cal-input'));
+      row.querySelector('.set-km-input').addEventListener('input', e => { set.km = e.target.value; });
+      row.querySelector('.set-cal-input').addEventListener('input', e => { set.calories = e.target.value; });
+    } else {
+      row.querySelector('.set-num').addEventListener('click', () => {
+        set.warmup = !set.warmup;
+        renderWorkoutEditor();
+      });
+      selectContentsOnFocus(row.querySelector('.set-weight-input'));
+      selectContentsOnFocus(row.querySelector('.set-reps-input'));
+      row.querySelector('.set-weight-input').addEventListener('input', e => { set.weight = e.target.value; });
+      row.querySelector('.set-reps-input').addEventListener('input', e => { set.reps = e.target.value; });
+    }
+    row.querySelector('.set-remove').addEventListener('click', () => {
+      exObj.sets.splice(setIdx, 1);
+      renderWorkoutEditor();
+    });
+  });
+
+  enableExerciseReorder(container, order => {
+    if (order.every((from, to) => from === to)) return;
+    const previous = state.workoutEditing.exercises;
+    state.workoutEditing.exercises = order.map(from => previous[from]);
+    if (state.workoutEditing.exercises[0]) state.workoutEditing.exercises[0].linkedToPrev = false;
+    renderWorkoutEditor();
+  });
+}
+
+async function saveWorkoutEdit() {
+  const date = document.getElementById('workout-edit-date-input').value;
+  if (!date) {
+    alert('Pick a date.');
+    return;
+  }
+  const hasLoggedSet = state.workoutEditing.exercises.some(e =>
+    e.sets.some(s => Number(s.reps) > 0 || Number(s.weight) > 0 || Number(s.km) > 0 || Number(s.calories) > 0));
+  if (!hasLoggedSet) {
+    alert('Log at least one set before saving.');
+    return;
+  }
+  try {
+    await db.updateWorkout(state.workoutEditing.id, {
+      name: document.getElementById('workout-edit-name-input').value.trim(),
+      date,
+      notes: document.getElementById('workout-edit-notes-input').value,
+      exercises: state.workoutEditing.exercises
+    });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  // Edited numbers may have changed what "previous" should show elsewhere.
+  state.lastCache = {};
+  closeWorkoutEditor();
+  loadHistory();
 }
 
 // ---------- Routine editor ----------
