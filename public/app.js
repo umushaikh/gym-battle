@@ -1224,16 +1224,23 @@ async function addExerciseToTarget(exercise, opts) {
     }
     await warmLastCache(exercise.id);
     const last = state.lastCache[exercise.id];
-    const initialSet = exercise.isCardio
-      ? { km: last ? last.sets[0].km : '', calories: last ? last.sets[0].calories : '', completed: false }
-      : { reps: last ? last.sets[0].reps : '', weight: last ? last.sets[0].weight : '', warmup: false, completed: false };
+    // Recreates every set from last time (not just one), so an exercise
+    // that was 4 sets last session starts as 4 sets again, each prefilled
+    // with that specific set's own numbers - not one set repeated or lost.
+    const sets = last && last.sets.length
+      ? last.sets.map(s => exercise.isCardio
+          ? { km: s.km, calories: s.calories, completed: false }
+          : { reps: s.reps, weight: s.weight, warmup: !!s.warmup, completed: false })
+      : [exercise.isCardio
+          ? { km: '', calories: '', completed: false }
+          : { reps: '', weight: '', warmup: false, completed: false }];
     state.activeWorkout.exercises.push({
       exerciseId: exercise.id,
       name: exercise.name,
       // Carries over whatever was jotted down last time (machine settings,
       // grip width, cues) so it doesn't have to be retyped every session.
       notes: last && last.notes ? last.notes : '',
-      sets: [initialSet]
+      sets
     });
     persistActiveWorkout();
     renderActiveWorkout();
