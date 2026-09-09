@@ -10,6 +10,7 @@ on:
     branches:
       - master
       - claude/gym-progress-tracker-nov6ww
+      - claude/content-creation-app-fgjdh6
   workflow_dispatch:
 
 permissions:
@@ -39,10 +40,13 @@ jobs:
       # cached app indefinitely.
       - name: Stamp the service worker with this commit
         run: |
-          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/" public/sw.js
+          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/" public/sw.js public/content/sw.js
           grep -q "iron-log-\${BUILD_ID}" public/sw.js && grep -q "${GITHUB_SHA}" public/sw.js \
-            && echo "stamped BUILD_ID=${GITHUB_SHA}" \
+            && echo "stamped BUILD_ID=${GITHUB_SHA} (public/sw.js)" \
             || { echo "service worker was not stamped"; exit 1; }
+          grep -q "content-studio-\${BUILD_ID}" public/content/sw.js && grep -q "${GITHUB_SHA}" public/content/sw.js \
+            && echo "stamped BUILD_ID=${GITHUB_SHA} (public/content/sw.js)" \
+            || { echo "content service worker was not stamped"; exit 1; }
 
       # Same commit, shown in the app itself (topbar and Settings) so it's
       # obvious at a glance whether a device is on the latest build without
@@ -50,10 +54,13 @@ jobs:
       - name: Stamp the visible version label
         run: |
           BUILD_TIME="$(date -u +'%Y-%m-%d %H:%M UTC')"
-          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/; s/__BUILD_TIME__/${BUILD_TIME}/" public/version.js
+          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/; s/__BUILD_TIME__/${BUILD_TIME}/" public/version.js public/content/version.js
           grep -q "${GITHUB_SHA}" public/version.js && grep -q "${BUILD_TIME}" public/version.js \
             && echo "stamped version.js: ${GITHUB_SHA} @ ${BUILD_TIME}" \
             || { echo "version.js was not stamped"; exit 1; }
+          grep -q "${GITHUB_SHA}" public/content/version.js && grep -q "${BUILD_TIME}" public/content/version.js \
+            && echo "stamped content/version.js: ${GITHUB_SHA} @ ${BUILD_TIME}" \
+            || { echo "content/version.js was not stamped"; exit 1; }
 
       - uses: actions/upload-pages-artifact@v3
         with:

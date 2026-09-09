@@ -1,0 +1,35 @@
+// Starter pack shown before an API key is set, or whenever a generation
+// call fails — so the swipe deck is never empty. Generic enough to apply to
+// most content niches; AI-generated ideas replace these once a key is set.
+const SEED_IDEAS = [
+  { title: 'Rate my setup', hook: 'Walk through your workspace/gear and roast your own choices.', format: 'Talking head' },
+  { title: 'A week in my life', hook: 'Fast-cut montage of a normal working day, real and unpolished.', format: 'Vlog' },
+  { title: 'Things I wish I knew starting out', hook: 'Five lessons that would have saved you months.', format: 'List' },
+  { title: 'Answering the same question I always get', hook: 'Pick the DM you get weekly and finally give the full answer.', format: 'Talking head' },
+  { title: 'Before vs after', hook: 'Show the messy first attempt next to where you are now.', format: 'Comparison' },
+  { title: 'Do this, not that', hook: 'One common mistake in your niche and the fix.', format: 'Tutorial' },
+  { title: 'Reacting to my own old content', hook: 'Pull up something you made a year ago and comment on it live.', format: 'Reaction' },
+  { title: '60 seconds to explain [your thing]', hook: 'A hard concept in your niche, stripped to the essentials.', format: 'Explainer' },
+  { title: 'What nobody tells you about [your field]', hook: 'The unglamorous part people leave out.', format: 'Talking head' },
+  { title: 'Unpopular opinion', hook: 'A take in your niche that will get people arguing in the comments.', format: 'Hot take' },
+  { title: 'Grab whatever is closest and use it as a prop', hook: 'A quick tip explained with whatever is on your desk.', format: 'Quick tip' },
+  { title: 'My honest review of a tool/product I use', hook: 'What actually works and what is overhyped.', format: 'Review' },
+  { title: 'Recreate a trending format in your niche', hook: 'Take a format blowing up right now and put your own spin on it.', format: 'Trend remix' },
+  { title: 'Story time: the moment things clicked', hook: 'The specific moment or failure that changed how you approach this.', format: 'Story' },
+  { title: 'Ask me anything, I answer 5 questions fast', hook: 'Pull from comments/DMs and rapid-fire answer them.', format: 'Q&A' },
+  { title: 'Show your actual process, start to finish', hook: 'No editing tricks — just the real steps, sped up.', format: 'Process' },
+  { title: 'Three tools/resources that changed how you work', hook: 'A tight, specific recommendation list.', format: 'List' },
+  { title: 'Debunk a myth in your space', hook: 'Something everyone believes that is actually wrong.', format: 'Myth-busting' },
+  { title: 'What I would do if I started over today', hook: 'The exact first steps knowing what you know now.', format: 'Talking head' },
+  { title: 'Duet/stitch a bad take', hook: 'Respond to bad advice going around with the correct version.', format: 'Reaction' },
+  { title: 'A day I almost quit', hook: 'The honest, low moment — and what got you through it.', format: 'Story' },
+  { title: 'Speedrun a beginner task', hook: 'Do the thing beginners struggle with, on a timer.', format: 'Challenge' },
+  { title: 'Things that look impressive but are actually easy', hook: 'Demystify something that looks harder than it is.', format: 'Tutorial' },
+  { title: 'What changed my mind this year', hook: 'A belief about your craft/niche you reversed and why.', format: 'Talking head' },
+  { title: 'Pack an order/prep for the week with me', hook: 'A behind-the-scenes routine viewers rarely see.', format: 'Behind the scenes' },
+  { title: 'Explain it like I’m five', hook: 'The most confusing concept in your niche, made simple.', format: 'Explainer' },
+  { title: 'The tiny detail that makes the biggest difference', hook: 'One small habit/technique that outsized results come from.', format: 'Quick tip' },
+  { title: 'React to comments on your last post', hook: 'Read and respond to what people actually said.', format: 'Reaction' },
+  { title: 'Compare two ways of doing the same thing', hook: 'Side by side: the slow way vs. the way that actually works.', format: 'Comparison' },
+  { title: 'What I got wrong', hook: 'A public correction or lesson learned the hard way.', format: 'Story' }
+];
