@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Content Studio</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#000000" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Content Studio" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="app" class="app">
+  <header class="topbar">
+    <div class="brand">🎬 Content Studio <span id="version-tag" class="version-tag"></span></div>
+    <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
+  </header>
+
+  <main class="content">
+
+    <section id="tab-ideas" class="tab-panel active">
+      <h2 class="panel-title">Video Ideas</h2>
+      <p class="panel-sub">Swipe right to save, left to skip.</p>
+
+      <div id="deck" class="deck"></div>
+
+      <div class="deck-actions">
+        <button id="pass-btn" class="swipe-btn pass" title="Pass">✕</button>
+        <button id="like-btn" class="swipe-btn like" title="Like">♥</button>
+      </div>
+      <div id="deck-status" class="deck-status"></div>
+    </section>
+
+    <section id="tab-calendar" class="tab-panel">
+      <h2 class="panel-title">Content Calendar</h2>
+      <p class="panel-sub">Plan what you'll post this month.</p>
+
+      <div class="section-header">
+        <h2>Ready to schedule</h2>
+      </div>
+      <div id="backlog-row" class="backlog-row"></div>
+
+      <div class="month-nav">
+        <button id="prev-month-btn" class="icon-btn">‹</button>
+        <h2 id="month-label"></h2>
+        <button id="next-month-btn" class="icon-btn">›</button>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+    </section>
+
+    <section id="tab-streak" class="tab-panel">
+      <h2 class="panel-title">Streak</h2>
+
+      <div class="streak-hero">
+        <div id="streak-num" class="streak-num">0</div>
+        <div class="streak-label">day streak</div>
+        <div id="streak-best" class="streak-best"></div>
+      </div>
+
+      <div id="motivation-banner" class="motivation-banner"></div>
+
+      <div id="week-strip" class="week-strip"></div>
+
+      <button id="post-today-btn" class="primary-btn big">I posted today</button>
+    </section>
+
+  </main>
+
+  <nav class="tabbar">
+    <button class="tabbar-btn active" data-tab="ideas"><span class="icon">💡</span>Ideas</button>
+    <button class="tabbar-btn" data-tab="calendar"><span class="icon">📅</span>Calendar</button>
+    <button class="tabbar-btn" data-tab="streak"><span class="icon">🔥</span>Streak</button>
+  </nav>
+</div>
+
+<!-- Day detail / assign idea sheet -->
+<div id="day-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2 id="day-modal-title">Day</h2>
+      <button id="day-modal-close" class="icon-btn">✕</button>
+    </div>
+    <div class="scrollable">
+      <div id="day-modal-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings sheet -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button id="settings-close" class="icon-btn">✕</button>
+    </div>
+    <div class="scrollable">
+      <form id="settings-form">
+        <label>Claude API key
+          <input name="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" />
+        </label>
+        <p class="hint-text">
+          Used only in your browser to call Claude and generate ideas — never sent anywhere else, never stored on a server. Get a key at
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="color: var(--accent-2)">console.anthropic.com</a>.
+          Without a key, you'll get a starter pack of generic ideas instead of AI-generated ones.
+        </p>
+
+        <label>Content niche <span style="color: var(--muted); font-weight: 400;">(optional, improves ideas)</span>
+          <input name="niche" type="text" placeholder="e.g. fitness coaching, Reels/Shorts" />
+        </label>
+
+        <div class="section-header"><h2>Reminders</h2></div>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 4px 0;">
+          <input name="remindersEnabled" type="checkbox" style="width: auto; margin: 0;" />
+          <span>Remind me to post</span>
+        </label>
+        <label>Reminder time
+          <input name="reminderTime" type="time" />
+        </label>
+        <p class="hint-text">
+          This app has no server — reminders fire locally in your browser: reliably when you open the app past your reminder time without having posted yet, and best-effort in the background if you've installed this to your home screen on Android/Chrome. iOS Safari can't fire background reminders for web apps, so opening the app is what triggers the nudge there.
+        </p>
+        <button type="button" id="enable-notif-btn" class="secondary-btn full">Enable notifications</button>
+
+        <button type="submit" class="primary-btn big">Save settings</button>
+      </form>
+
+      <div class="section-header"><h2>Data</h2></div>
+      <button id="export-btn" class="secondary-btn full">Export backup</button>
+      <label class="secondary-btn full" style="text-align:center; display:block; cursor:pointer;">
+        Import backup
+        <input id="import-file" type="file" accept="application/json" class="hidden" />
+      </label>
+      <button id="reset-btn" class="danger-btn" style="width: 100%; margin-top: 10px;">Reset all data</button>
+
+      <div class="version-line" id="version-line"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="version.js"></script>
+<script src="db.js"></script>
+<script src="ideas-seed.js"></script>
+<script src="ai.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
